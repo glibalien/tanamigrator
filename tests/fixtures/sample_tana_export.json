@@ -1,0 +1,373 @@
+{
+  "docs": [
+    {
+      "id": "tag_task",
+      "props": {
+        "_docType": "tagDef",
+        "name": "task"
+      }
+    },
+    {
+      "id": "tag_day",
+      "props": {
+        "_docType": "tagDef",
+        "name": "day"
+      }
+    },
+    {
+      "id": "tag_meeting",
+      "props": {
+        "_docType": "tagDef",
+        "name": "meeting"
+      }
+    },
+    {
+      "id": "tag_project",
+      "props": {
+        "_docType": "tagDef",
+        "name": "project"
+      }
+    },
+    {
+      "id": "tag_person",
+      "props": {
+        "_docType": "tagDef",
+        "name": "person"
+      }
+    },
+    {
+      "id": "tag_note",
+      "props": {
+        "_docType": "tagDef",
+        "name": "note"
+      }
+    },
+    {
+      "id": "tag_week",
+      "props": {
+        "_docType": "tagDef",
+        "name": "week"
+      }
+    },
+    {
+      "id": "tag_readwise",
+      "props": {
+        "_docType": "tagDef",
+        "name": "readwise"
+      }
+    },
+    {
+      "id": "tag_highlight",
+      "props": {
+        "_docType": "tagDef",
+        "name": "highlight"
+      }
+    },
+    {
+      "id": "metanode_task1",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "tuple_task1_tag",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_task1"
+      },
+      "children": ["tag_task"]
+    },
+    {
+      "id": "metanode_meeting1",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "tuple_meeting1_tag",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_meeting1"
+      },
+      "children": ["tag_meeting"]
+    },
+    {
+      "id": "metanode_project1",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "tuple_project1_tag",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_project1"
+      },
+      "children": ["tag_project"]
+    },
+    {
+      "id": "metanode_person1",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "tuple_person1_tag",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_person1"
+      },
+      "children": ["tag_person"]
+    },
+    {
+      "id": "metanode_note1",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "tuple_note1_tag",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_note1"
+      },
+      "children": ["tag_note"]
+    },
+    {
+      "id": "metanode_day1",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "tuple_day1_tag",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_day1"
+      },
+      "children": ["tag_day"]
+    },
+    {
+      "id": "project1",
+      "props": {
+        "name": "Test Project",
+        "_metaNodeId": "metanode_project1",
+        "created": 1700000000000
+      },
+      "children": []
+    },
+    {
+      "id": "person1",
+      "props": {
+        "name": "John Doe",
+        "_metaNodeId": "metanode_person1",
+        "created": 1700000000000
+      },
+      "children": []
+    },
+    {
+      "id": "daily_2024_01_15",
+      "props": {
+        "_docType": "journalPart",
+        "name": "2024-01-15",
+        "_metaNodeId": "metanode_day1"
+      },
+      "children": ["task1", "inline_node1", "meeting1"]
+    },
+    {
+      "id": "daily_2024_01_16",
+      "props": {
+        "_docType": "journalPart",
+        "name": "2024-01-16",
+        "_metaNodeId": "metanode_day1"
+      },
+      "children": ["note1"]
+    },
+    {
+      "id": "daily_blank",
+      "props": {
+        "_docType": "journalPart",
+        "name": "2024-01-17",
+        "_metaNodeId": "metanode_day1"
+      },
+      "children": []
+    },
+    {
+      "id": "task1",
+      "props": {
+        "name": "Complete the migration script",
+        "_metaNodeId": "metanode_task1",
+        "_ownerId": "daily_2024_01_15",
+        "created": 1705300000000,
+        "_done": 1705400000000
+      },
+      "children": ["task1_child1"]
+    },
+    {
+      "id": "task1_child1",
+      "props": {
+        "name": "Sub-task item",
+        "_ownerId": "task1"
+      },
+      "children": []
+    },
+    {
+      "id": "inline_node1",
+      "props": {
+        "name": "This is an inline note without a supertag",
+        "_ownerId": "daily_2024_01_15"
+      },
+      "children": ["inline_child1"]
+    },
+    {
+      "id": "inline_child1",
+      "props": {
+        "name": "Nested inline content",
+        "_ownerId": "inline_node1"
+      },
+      "children": []
+    },
+    {
+      "id": "meeting1",
+      "props": {
+        "name": "Planning Meeting",
+        "_metaNodeId": "metanode_meeting1",
+        "_ownerId": "daily_2024_01_15",
+        "created": 1705300000000
+      },
+      "children": ["meeting1_notes"]
+    },
+    {
+      "id": "tuple_meeting1_project",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "meeting1"
+      },
+      "children": ["zaD_EkMhKP", "project1"]
+    },
+    {
+      "id": "tuple_meeting1_people",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "meeting1"
+      },
+      "children": ["znaT5AHKXQkR", "person1"]
+    },
+    {
+      "id": "meeting1_notes",
+      "props": {
+        "name": "Discussed project timeline",
+        "_ownerId": "meeting1"
+      },
+      "children": []
+    },
+    {
+      "id": "note1",
+      "props": {
+        "name": "Important Note",
+        "_metaNodeId": "metanode_note1",
+        "_ownerId": "daily_2024_01_16",
+        "created": 1705400000000
+      },
+      "children": ["note1_content"]
+    },
+    {
+      "id": "note1_content",
+      "props": {
+        "name": "This note has a reference to <span data-inlineref-node=\"task1\" data-inlineref-node-name=\"Complete the migration script\">the task</span>",
+        "_ownerId": "note1"
+      },
+      "children": []
+    },
+    {
+      "id": "orphan_note",
+      "props": {
+        "name": "Orphan Tagged Note",
+        "_metaNodeId": "metanode_note1",
+        "created": 1705500000000
+      },
+      "children": ["orphan_content"]
+    },
+    {
+      "id": "orphan_content",
+      "props": {
+        "name": "This note is not under a daily note",
+        "_ownerId": "orphan_note"
+      },
+      "children": []
+    },
+    {
+      "id": "node_with_html",
+      "props": {
+        "name": "Text with <b>bold</b> and <i>italic</i> formatting"
+      },
+      "children": []
+    },
+    {
+      "id": "node_with_date_ref",
+      "props": {
+        "name": "Meeting on <span data-inlineref-date=\"{&quot;dateTimeString&quot;:&quot;2024-01-20&quot;}\" data-inlineref-date-type=\"date\">Jan 20</span>"
+      },
+      "children": []
+    },
+    {
+      "id": "trash_node",
+      "props": {
+        "name": "This is in trash",
+        "_ownerId": "USER_TRASH"
+      },
+      "children": []
+    },
+    {
+      "id": "SYS_system_node",
+      "props": {
+        "name": "System node"
+      },
+      "children": []
+    },
+    {
+      "id": "metanode_skip",
+      "props": {
+        "_docType": "metanode"
+      }
+    },
+    {
+      "id": "node_with_special_chars",
+      "props": {
+        "name": "File: test/path<>:\"|?* name"
+      },
+      "children": []
+    },
+    {
+      "id": "image_url_node",
+      "props": {
+        "name": "https://firebasestorage.googleapis.com/v0/b/test/o/images%2Ftest-image.png?alt=media"
+      },
+      "children": []
+    },
+    {
+      "id": "referenced_node",
+      "props": {
+        "name": "Referenced But Not Tagged",
+        "created": 1705600000000
+      },
+      "children": ["ref_child"]
+    },
+    {
+      "id": "ref_child",
+      "props": {
+        "name": "Child of referenced node",
+        "_ownerId": "referenced_node"
+      },
+      "children": []
+    },
+    {
+      "id": "node_with_reference",
+      "props": {
+        "name": "See also <span data-inlineref-node=\"referenced_node\" data-inlineref-node-name=\"Referenced But Not Tagged\">this node</span>",
+        "_metaNodeId": "metanode_note1"
+      },
+      "children": []
+    }
+  ]
+}

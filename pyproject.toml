@@ -1,0 +1,27 @@
+[project]
+name = "tana-to-obsidian"
+version = "1.0.0"
+description = "Convert Tana exports to Obsidian markdown"
+requires-python = ">=3.11"
+dependencies = [
+    "customtkinter>=5.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6.0.0",
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+tana-to-obsidian = "src.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

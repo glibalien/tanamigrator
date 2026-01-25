@@ -11,7 +11,6 @@ A cross-platform desktop application that converts Tana exports to Obsidian-comp
 - **Smart wikilinks** - Field values with supertags automatically become `[[wikilinks]]`
 - References converted to `[[Obsidian links]]`
 - Images downloaded from Firebase and embedded as `![[attachments]]`
-- Progress tracking with cancel support
 - Cross-platform: Windows, macOS, Linux
 
 ## Installation

@@ -124,6 +124,8 @@ class StepIndicator(ctk.CTkFrame):
 class SupertagSelectionFrame(ctk.CTkFrame):
     """Scrollable frame for selecting supertags to include."""
 
+    BATCH_SIZE = 10  # Number of supertags to add per batch
+
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
 
@@ -137,98 +139,197 @@ class SupertagSelectionFrame(ctk.CTkFrame):
             font=("", 14, "bold")
         ).pack(side="left")
 
-        ctk.CTkButton(
+        self.select_all_btn = ctk.CTkButton(
             header_frame,
             text="Select All",
             width=80,
             command=self._select_all
-        ).pack(side="right", padx=5)
+        )
+        self.select_all_btn.pack(side="right", padx=5)
 
-        ctk.CTkButton(
+        self.select_none_btn = ctk.CTkButton(
             header_frame,
             text="Select None",
             width=80,
             command=self._select_none
-        ).pack(side="right", padx=5)
+        )
+        self.select_none_btn.pack(side="right", padx=5)
+
+        # Loading indicator (shown during population)
+        self.loading_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.loading_label = ctk.CTkLabel(
+            self.loading_frame,
+            text="Loading supertags...",
+            font=("", 12)
+        )
+        self.loading_label.pack(pady=5)
+        self.loading_progress = ctk.CTkProgressBar(self.loading_frame, width=400)
+        self.loading_progress.pack(pady=5)
+        self.loading_progress.set(0)
 
         # Scrollable area
-        self.scrollable = ctk.CTkScrollableFrame(self, height=350)
+        self.scrollable = ctk.CTkScrollableFrame(self, height=300)
         self.scrollable.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.checkboxes: Dict[str, ctk.CTkCheckBox] = {}
         self.variables: Dict[str, ctk.BooleanVar] = {}
 
+        # Library nodes option at bottom
+        self.include_library_nodes_var = ctk.BooleanVar(value=True)
+        self.library_cb = ctk.CTkCheckBox(
+            self,
+            text="Include Library nodes without supertags if they are referenced by an exported node",
+            variable=self.include_library_nodes_var,
+            font=("", 12)
+        )
+        self.library_cb.pack(anchor="w", padx=15, pady=(5, 10))
+
+        # State for incremental loading
+        self._pending_supertags: List = []
+        self._load_index = 0
+        self._is_loading = False
+
     def set_supertags(self, supertags: List['SupertagInfo']):
-        """Populate the list with supertags."""
+        """Populate the list with supertags incrementally to keep UI responsive."""
         # Clear existing
         for widget in self.scrollable.winfo_children():
             widget.destroy()
         self.checkboxes.clear()
         self.variables.clear()
 
-        # Add supertags
-        for info in supertags:
-            # Determine default selection
-            default_selected = info.special_type not in ('week', 'year', 'field-definition')
+        # If no supertags, nothing to do
+        if not supertags:
+            return
 
-            var = ctk.BooleanVar(value=default_selected)
-            self.variables[info.id] = var
+        # Set up incremental loading
+        self._pending_supertags = list(supertags)
+        self._load_index = 0
+        self._is_loading = True
 
-            # Build display text
-            display_text = f"#{info.name}"
-            if info.instance_count > 0:
-                display_text += f"  ({info.instance_count})"
+        # Show loading indicator, hide scrollable
+        self.scrollable.pack_forget()
+        self.library_cb.pack_forget()
+        self.loading_frame.pack(fill="x", padx=10, pady=20)
+        self.loading_progress.set(0)
 
-            # Add special type indicator
-            if info.special_type == 'day':
-                display_text += "  [Daily Notes]"
-            elif info.special_type == 'week':
-                display_text += "  [Week - skipped by default]"
-            elif info.special_type == 'year':
-                display_text += "  [Year - skipped by default]"
-            elif info.special_type == 'field-definition':
-                display_text += "  [Field Definition - skipped]"
+        # Disable buttons during loading
+        self.select_all_btn.configure(state="disabled")
+        self.select_none_btn.configure(state="disabled")
 
-            # Create row frame for checkbox + field info
-            row_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
-            row_frame.pack(fill="x", pady=2)
+        # Start incremental loading
+        self.after(1, self._load_next_batch)
 
-            cb = ctk.CTkCheckBox(
-                row_frame,
-                text=display_text,
-                variable=var,
-                font=("", 12)
-            )
-            cb.pack(side="left", anchor="w")
+    def _load_next_batch(self):
+        """Load the next batch of supertags."""
+        if not self._is_loading:
+            return
 
-            # Show field count if any
-            if info.fields:
-                field_types = []
-                for f in info.fields:
-                    if f.field_type == 'options_from_supertag':
-                        field_types.append(f"links to #{f.source_supertag_name}")
-                    elif f.field_type == 'system_done':
-                        field_types.append("done status")
+        total = len(self._pending_supertags)
+        end_index = min(self._load_index + self.BATCH_SIZE, total)
 
-                if field_types:
-                    field_text = f"  [{', '.join(field_types)}]"
-                    ctk.CTkLabel(
-                        row_frame,
-                        text=field_text,
-                        font=("", 11),
-                        text_color="gray"
-                    ).pack(side="left", padx=(5, 0))
+        # Add this batch
+        for i in range(self._load_index, end_index):
+            self._add_supertag_row(self._pending_supertags[i])
 
-            self.checkboxes[info.id] = cb
+        self._load_index = end_index
 
-            # Disable field-definition checkbox
-            if info.special_type == 'field-definition':
-                cb.configure(state="disabled")
-                var.set(False)
+        # Update progress
+        progress = self._load_index / total if total > 0 else 1
+        self.loading_progress.set(progress)
+        self.loading_label.configure(text=f"Loading supertags... ({self._load_index}/{total})")
+
+        # Check if done
+        if self._load_index >= total:
+            self._finish_loading()
+        else:
+            # Schedule next batch
+            self.after(1, self._load_next_batch)
+
+    def _add_supertag_row(self, info: 'SupertagInfo'):
+        """Add a single supertag row to the list."""
+        # Determine default selection
+        default_selected = info.special_type not in ('week', 'year', 'field-definition')
+
+        var = ctk.BooleanVar(value=default_selected)
+        self.variables[info.id] = var
+
+        # Build display text
+        display_text = f"#{info.name}"
+        if info.instance_count > 0:
+            display_text += f"  ({info.instance_count})"
+
+        # Add special type indicator
+        if info.special_type == 'day':
+            display_text += "  [Daily Notes]"
+        elif info.special_type == 'week':
+            display_text += "  [Week - skipped by default]"
+        elif info.special_type == 'year':
+            display_text += "  [Year - skipped by default]"
+        elif info.special_type == 'field-definition':
+            display_text += "  [Field Definition - skipped]"
+
+        # Create row frame for checkbox + field info
+        row_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
+        row_frame.pack(fill="x", pady=2)
+
+        cb = ctk.CTkCheckBox(
+            row_frame,
+            text=display_text,
+            variable=var,
+            font=("", 12)
+        )
+        cb.pack(side="left", anchor="w")
+
+        # Show field count if any
+        if info.fields:
+            field_types = []
+            for f in info.fields:
+                if f.field_type == 'options_from_supertag':
+                    field_types.append(f"links to #{f.source_supertag_name}")
+                elif f.field_type == 'system_done':
+                    field_types.append("done status")
+
+            if field_types:
+                field_text = f"  [{', '.join(field_types)}]"
+                ctk.CTkLabel(
+                    row_frame,
+                    text=field_text,
+                    font=("", 11),
+                    text_color="gray"
+                ).pack(side="left", padx=(5, 0))
+
+        self.checkboxes[info.id] = cb
+
+        # Disable field-definition checkbox
+        if info.special_type == 'field-definition':
+            cb.configure(state="disabled")
+            var.set(False)
+
+    def _finish_loading(self):
+        """Finish the loading process and show the supertag list."""
+        self._is_loading = False
+        self._pending_supertags = []
+
+        # Hide loading indicator, show scrollable and library checkbox
+        self.loading_frame.pack_forget()
+        self.scrollable.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.library_cb.pack(anchor="w", padx=15, pady=(5, 10))
+
+        # Re-enable buttons
+        self.select_all_btn.configure(state="normal")
+        self.select_none_btn.configure(state="normal")
+
+    def is_loading(self) -> bool:
+        """Return whether supertags are still being loaded."""
+        return self._is_loading
 
     def get_selected_ids(self) -> List[str]:
         """Return list of selected supertag IDs."""
         return [tag_id for tag_id, var in self.variables.items() if var.get()]
+
+    def get_include_library_nodes(self) -> bool:
+        """Return whether to include library nodes without supertags."""
+        return self.include_library_nodes_var.get()
 
     def _select_all(self):
         """Select all supertags except field-definition."""
@@ -255,11 +356,9 @@ class GlobalOptionsFrame(ctk.CTkFrame):
 
         # Create checkbox variables
         self.download_images_var = ctk.BooleanVar(value=True)
-        self.include_library_nodes_var = ctk.BooleanVar(value=True)
 
         # Create checkboxes
         self._create_checkbox("Download images from Firebase", self.download_images_var)
-        self._create_checkbox("Include Library nodes without supertags", self.include_library_nodes_var)
 
     def _create_checkbox(self, text: str, variable: ctk.BooleanVar):
         """Create and pack a checkbox."""
@@ -271,7 +370,6 @@ class GlobalOptionsFrame(ctk.CTkFrame):
         """Return all option values as a dictionary."""
         return {
             "download_images": self.download_images_var.get(),
-            "include_library_nodes": self.include_library_nodes_var.get(),
         }
 
 
@@ -498,3 +596,119 @@ class ActionButtonsFrame(ctk.CTkFrame):
         else:
             self.convert_button.configure(state="normal")
             self.cancel_button.configure(state="disabled")
+
+
+class FolderConfigFrame(ctk.CTkFrame):
+    """Frame for configuring output folders for supertags and attachments."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        # Header
+        self.header = ctk.CTkLabel(self, text="Output Folders", font=("", 14, "bold"))
+        self.header.pack(anchor="w", padx=15, pady=(12, 8))
+
+        ctk.CTkLabel(
+            self,
+            text="Specify subfolders for each supertag (leave empty for root output folder)",
+            font=("", 11),
+            text_color="gray"
+        ).pack(anchor="w", padx=15, pady=(0, 8))
+
+        # Scrollable area for supertag folders
+        self.scrollable = ctk.CTkScrollableFrame(self, height=120)
+        self.scrollable.pack(fill="both", expand=True, padx=10, pady=(0, 5))
+
+        # Configure grid columns for scrollable
+        self.scrollable.grid_columnconfigure(1, weight=1)
+
+        self.folder_entries: Dict[str, ctk.CTkEntry] = {}
+        self.supertag_names: Dict[str, str] = {}
+
+        # Bottom frame for attachments and untagged library folders
+        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.bottom_frame.pack(fill="x", padx=10, pady=(5, 10))
+        self.bottom_frame.grid_columnconfigure(1, weight=1)
+
+        # Attachments folder
+        ctk.CTkLabel(
+            self.bottom_frame,
+            text="Attachments folder:",
+            width=160,
+            anchor="w"
+        ).grid(row=0, column=0, padx=(5, 10), pady=3, sticky="w")
+
+        self.attachments_entry = ctk.CTkEntry(self.bottom_frame, width=200)
+        self.attachments_entry.grid(row=0, column=1, pady=3, sticky="ew", padx=(0, 5))
+        self.attachments_entry.insert(0, "Attachments")
+
+        # Untagged library nodes folder (initially hidden)
+        self.untagged_library_label = ctk.CTkLabel(
+            self.bottom_frame,
+            text="Untagged Library folder:",
+            width=160,
+            anchor="w"
+        )
+
+        self.untagged_library_entry = ctk.CTkEntry(self.bottom_frame, width=200)
+
+    def set_supertags(self, supertag_configs: List['SupertagConfig']):
+        """Populate the folder configuration with selected supertags."""
+        # Clear existing
+        for widget in self.scrollable.winfo_children():
+            widget.destroy()
+        self.folder_entries.clear()
+        self.supertag_names.clear()
+
+        # Add row for each supertag
+        for i, config in enumerate(supertag_configs):
+            self.supertag_names[config.supertag_id] = config.supertag_name
+
+            # Label
+            label = ctk.CTkLabel(
+                self.scrollable,
+                text=f"#{config.supertag_name}:",
+                width=140,
+                anchor="w"
+            )
+            label.grid(row=i, column=0, padx=(5, 10), pady=4, sticky="w")
+
+            # Entry for folder
+            entry = ctk.CTkEntry(self.scrollable, width=200)
+            entry.grid(row=i, column=1, pady=4, sticky="ew", padx=(0, 5))
+
+            # Set default folder based on special types
+            default_folder = ""
+            if config.supertag_name.lower() == 'day':
+                default_folder = "Daily Notes"
+            elif config.supertag_name.lower() == 'task':
+                default_folder = "Tasks"
+
+            if default_folder:
+                entry.insert(0, default_folder)
+
+            self.folder_entries[config.supertag_id] = entry
+
+    def get_folder_mappings(self) -> Dict[str, str]:
+        """Return dict mapping supertag_id -> folder name."""
+        return {
+            tag_id: entry.get().strip()
+            for tag_id, entry in self.folder_entries.items()
+        }
+
+    def get_attachments_folder(self) -> str:
+        """Return the attachments folder name."""
+        return self.attachments_entry.get().strip() or "Attachments"
+
+    def get_untagged_library_folder(self) -> str:
+        """Return the untagged library nodes folder name."""
+        return self.untagged_library_entry.get().strip()
+
+    def set_include_library_nodes(self, include: bool):
+        """Show or hide the untagged library folder field based on setting."""
+        if include:
+            self.untagged_library_label.grid(row=1, column=0, padx=(5, 10), pady=3, sticky="w")
+            self.untagged_library_entry.grid(row=1, column=1, pady=3, sticky="ew", padx=(0, 5))
+        else:
+            self.untagged_library_label.grid_forget()
+            self.untagged_library_entry.grid_forget()

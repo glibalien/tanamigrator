@@ -19,6 +19,30 @@ class TanaExportScanner:
     DONE_FIELD_ID = 'SYS_A77'  # Done field
     DONE_CHECKBOX_FIELD_ID = 'SYS_A55'  # "Show done/not done with a checkbox"
     YES_VALUE_ID = 'SYS_V03'  # "Yes" value
+    TYPE_CHOICE_FIELD_ID = 'SYS_A02'  # typeChoice - indicates data type tuple
+    OPTIONS_VALUES_FIELD_ID = 'SYS_A03'  # Values tuple for options type
+
+    # Data type IDs (found in typeChoice tuples with _sourceId: SYS_A02)
+    DATA_TYPE_CHECKBOX = 'SYS_D01'  # Boolean checkbox
+    DATA_TYPE_DATE = 'SYS_D03'  # Date field
+    DATA_TYPE_OPTIONS_FROM_SUPERTAG = 'SYS_D05'  # Options from supertag
+    DATA_TYPE_PLAIN = 'SYS_D06'  # Plain text
+    DATA_TYPE_NUMBER = 'SYS_D08'  # Number
+    DATA_TYPE_URL = 'SYS_D10'  # URL
+    DATA_TYPE_EMAIL = 'SYS_D11'  # Email
+    DATA_TYPE_OPTIONS = 'SYS_D12'  # Predefined options
+
+    # Mapping from SYS_D* to data_type string
+    DATA_TYPE_MAP = {
+        'SYS_D01': 'checkbox',
+        'SYS_D03': 'date',
+        'SYS_D05': 'options_from_supertag',
+        'SYS_D06': 'plain',
+        'SYS_D08': 'number',
+        'SYS_D10': 'url',
+        'SYS_D11': 'email',
+        'SYS_D12': 'options',
+    }
 
     # System/internal supertags to exclude from selection
     EXCLUDED_TAG_NAMES = {
@@ -272,6 +296,9 @@ class TanaExportScanner:
                 ))
                 continue
 
+            # Detect data type and options for this field
+            data_type, options = self._detect_field_data_type(field_def)
+
             # Check if this is an "options from supertag" field
             source_tag_id, source_tag_name = self._detect_options_from_supertag(field_def)
 
@@ -280,6 +307,7 @@ class TanaExportScanner:
                     id=field_id,
                     name=field_name,
                     field_type='options_from_supertag',
+                    data_type='options_from_supertag',
                     source_supertag_id=source_tag_id,
                     source_supertag_name=source_tag_name
                 ))
@@ -287,7 +315,9 @@ class TanaExportScanner:
                 fields.append(FieldInfo(
                     id=field_id,
                     name=field_name,
-                    field_type='plain'
+                    field_type=data_type if data_type != 'plain' else 'plain',
+                    data_type=data_type,
+                    options=options
                 ))
 
         return fields
@@ -346,6 +376,51 @@ class TanaExportScanner:
                         return (gc_id, self.supertags[gc_id])
 
         return (None, None)
+
+    def _detect_field_data_type(self, field_doc: dict) -> tuple:
+        """Detect the data type of a field and extract options if applicable.
+
+        Detection: Field has a child tuple where _sourceId is SYS_A02 (typeChoice).
+        One of that tuple's children is the data type (SYS_D01, SYS_D12, etc.).
+
+        For 'options' type (SYS_D12), also looks for SYS_A03 tuple to get option values.
+
+        Returns: (data_type: str, options: List[str])
+        """
+        data_type = 'plain'
+        options = []
+
+        for child_id in field_doc.get('children', []):
+            child = self.doc_map.get(child_id)
+            if not child:
+                continue
+
+            child_props = child.get('props', {})
+            source_id = child_props.get('_sourceId', '')
+
+            # Check for typeChoice tuple (SYS_A02)
+            if source_id == self.TYPE_CHOICE_FIELD_ID:
+                child_children = child.get('children', [])
+                for gc_id in child_children:
+                    if gc_id in self.DATA_TYPE_MAP:
+                        data_type = self.DATA_TYPE_MAP[gc_id]
+                        break
+
+            # Check for options values tuple (SYS_A03) - only relevant for 'options' type
+            elif source_id == self.OPTIONS_VALUES_FIELD_ID:
+                child_children = child.get('children', [])
+                for gc_id in child_children:
+                    # Skip system IDs (like SYS_T03)
+                    if gc_id.startswith('SYS_'):
+                        continue
+                    # Get the option name
+                    option_doc = self.doc_map.get(gc_id)
+                    if option_doc:
+                        option_name = option_doc.get('props', {}).get('name', '')
+                        if option_name:
+                            options.append(option_name)
+
+        return (data_type, options)
 
     def _has_done_checkbox_via_metanode(self, supertag_doc: dict) -> bool:
         """Check if supertag has "done checkbox" enabled via its metanode.

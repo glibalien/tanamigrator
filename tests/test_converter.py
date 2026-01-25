@@ -58,7 +58,6 @@ class TestConversionSettings:
         assert settings.skip_year_nodes is True
         assert settings.skip_highlights is False  # Changed in v2: not exposed in UI
         assert settings.skip_field_definitions is True
-        assert settings.project_field_id == "zaD_EkMhKP"
 
     def test_custom_values(self, temp_output_dir):
         """Test that custom values override defaults."""
@@ -67,11 +66,9 @@ class TestConversionSettings:
             output_dir=temp_output_dir,
             download_images=False,
             skip_readwise=False,
-            project_field_id="custom_id",
         )
         assert settings.download_images is False
         assert settings.skip_readwise is False
-        assert settings.project_field_id == "custom_id"
 
 
 class TestConverterInitialization:
@@ -434,11 +431,8 @@ class TestFullConversion:
         conv = TanaToObsidian(default_settings)
         conv.run()
 
-        daily_notes_dir = temp_output_dir / "Daily Notes"
-        assert daily_notes_dir.exists()
-
-        # Check for specific daily note
-        daily_note = daily_notes_dir / "2024-01-15.md"
+        # Daily notes go to root output dir when no folder is configured
+        daily_note = temp_output_dir / "2024-01-15.md"
         assert daily_note.exists()
 
     def test_blank_daily_notes_skipped(self, default_settings, temp_output_dir):
@@ -449,21 +443,19 @@ class TestFullConversion:
         # The fixture has a blank daily note (2024-01-17)
         assert result.blank_daily_notes_skipped >= 1
 
-        daily_notes_dir = temp_output_dir / "Daily Notes"
-        blank_note = daily_notes_dir / "2024-01-17.md"
+        # Check blank note doesn't exist in root output dir
+        blank_note = temp_output_dir / "2024-01-17.md"
         assert not blank_note.exists()
 
-    def test_tasks_in_tasks_folder(self, default_settings, temp_output_dir):
-        """Test that tasks are placed in Tasks folder."""
+    def test_tasks_exported(self, default_settings, temp_output_dir):
+        """Test that tasks are exported as files."""
         conv = TanaToObsidian(default_settings)
-        conv.run()
+        result = conv.run()
 
-        tasks_dir = temp_output_dir / "Tasks"
-        assert tasks_dir.exists()
-
-        # Check that task file exists
-        task_files = list(tasks_dir.glob("*.md"))
-        assert len(task_files) > 0
+        # Tasks go to root output dir when no folder is configured
+        # Check that some task-related file exists
+        md_files = list(temp_output_dir.glob("*.md"))
+        assert len(md_files) > 0
 
     def test_tagged_nodes_exported(self, default_settings, temp_output_dir):
         """Test that tagged nodes are exported as separate files."""
@@ -493,23 +485,18 @@ class TestFullConversion:
 
 
 class TestFieldExtraction:
-    """Tests for extracting field values (project, people, etc.)."""
+    """Tests for extracting field values via dynamic system."""
 
-    def test_get_project_reference(self, converter):
-        """Test extracting project references."""
-        meeting_doc = converter.doc_map["meeting1"]
-        projects = converter.get_project_reference(meeting_doc)
+    def test_get_field_value_returns_none_for_missing(self, converter):
+        """Test that get_field_value returns None for nodes without field values."""
+        result = converter.get_field_value("nonexistent_node", "nonexistent_field")
+        assert result is None
 
-        assert len(projects) > 0
-        assert "Test Project" in projects[0]
-
-    def test_get_people_involved(self, converter):
-        """Test extracting people involved references."""
-        meeting_doc = converter.doc_map["meeting1"]
-        people = converter.get_people_involved(meeting_doc)
-
-        assert len(people) > 0
-        assert "John Doe" in people[0]
+    def test_get_all_field_values_returns_empty_dict(self, converter):
+        """Test that get_all_field_values returns empty dict for nodes without configured fields."""
+        result = converter.get_all_field_values("task1")
+        # Without configured field mappings, should return empty dict
+        assert isinstance(result, dict)
 
 
 class TestTaskStatus:

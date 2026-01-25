@@ -1606,29 +1606,37 @@ class TanaToObsidian:
             # Collect all tagged nodes to export (from daily notes)
             all_tagged_nodes = []
 
-            # Phase 1: Export daily notes
-            self.report_progress("Daily Notes", 0, len(self.docs), "Exporting daily notes...")
+            # Phase 1: Export daily notes (only if #day supertag is selected)
+            # Check if day tag is selected (or if no selection filter is active)
+            export_daily_notes = True
+            if self.selected_supertag_ids and self.day_tag_id:
+                export_daily_notes = self.day_tag_id in self.selected_supertag_ids
 
-            for idx, doc in enumerate(self.docs):
-                self.check_cancelled()
+            if export_daily_notes:
+                self.report_progress("Daily Notes", 0, len(self.docs), "Exporting daily notes...")
 
-                if self.should_skip_doc(doc):
-                    skipped_count += 1
-                    continue
+                for idx, doc in enumerate(self.docs):
+                    self.check_cancelled()
 
-                if self.is_daily_note(doc):
-                    tagged_nodes = self.export_daily_note(doc, daily_notes_dir)
-                    if tagged_nodes is None:
-                        # Blank daily note - skipped
-                        blank_daily_count += 1
-                    else:
-                        all_tagged_nodes.extend(tagged_nodes)
-                        daily_count += 1
+                    if self.should_skip_doc(doc):
+                        skipped_count += 1
+                        continue
 
-                    if daily_count % 100 == 0:
-                        self.report_progress("Daily Notes", daily_count, 0, f"Exported {daily_count} daily notes...")
+                    if self.is_daily_note(doc):
+                        tagged_nodes = self.export_daily_note(doc, daily_notes_dir)
+                        if tagged_nodes is None:
+                            # Blank daily note - skipped
+                            blank_daily_count += 1
+                        else:
+                            all_tagged_nodes.extend(tagged_nodes)
+                            daily_count += 1
 
-            self.report_progress("Daily Notes", daily_count, daily_count, f"Exported {daily_count} daily notes")
+                        if daily_count % 100 == 0:
+                            self.report_progress("Daily Notes", daily_count, 0, f"Exported {daily_count} daily notes...")
+
+                self.report_progress("Daily Notes", daily_count, daily_count, f"Exported {daily_count} daily notes")
+            else:
+                self.report_progress("Daily Notes", 0, 0, "Skipped (day supertag not selected)")
 
             # Phase 2: Collect tagged nodes for merging
             self.report_progress("Tagged Nodes", 0, len(all_tagged_nodes), f"Collecting {len(all_tagged_nodes)} tagged nodes...")

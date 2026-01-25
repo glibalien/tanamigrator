@@ -1,4 +1,4 @@
-# Tana to Obsidian Converter
+# Tana Migrator
 
 A cross-platform desktop application that converts Tana exports to Obsidian-compatible markdown files.
 

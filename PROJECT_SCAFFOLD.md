@@ -537,3 +537,84 @@ The original script has these areas that need modification:
 - The GUI should remain responsive during conversion (threading)
 - Users should be able to cancel long-running conversions
 - Error handling should be graceful with user-friendly messages
+
+---
+
+## Optionality Refactor (v2.0)
+
+See `OPTIONALITY_REFACTOR_PLAN.md` for full implementation details.
+
+### Summary of Changes
+
+The app evolves from a simple file-selection flow to a multi-step wizard:
+
+1. **File Selection** → User provides Tana export JSON
+2. **Supertag Selection** → App scans JSON, user selects which supertags to include
+3. **Field Mapping** → User configures per-supertag field → frontmatter mappings
+4. **Options & Output** → Output directory + global options
+5. **Conversion** → Progress tracking with cancel support
+
+### New Project Structure
+
+```
+src/
+├── main.py
+├── core/
+│   ├── converter.py     # Updated for dynamic field mapping
+│   ├── scanner.py       # NEW: Scans export for supertags/fields
+│   ├── models.py        # Updated with new dataclasses
+│   └── exceptions.py
+└── gui/
+    ├── app.py           # Updated for wizard flow
+    ├── components.py    # New wizard components
+    └── styles.py
+```
+
+### Key New Data Models
+
+```python
+@dataclass
+class SupertagInfo:
+    id: str
+    name: str
+    instance_count: int
+    fields: List[FieldInfo]
+    is_system: bool
+    special_type: Optional[str]  # 'day', 'week', 'year'
+
+@dataclass
+class FieldInfo:
+    id: str
+    name: str
+    field_type: str  # 'plain', 'options_from_supertag', 'system_done'
+    source_supertag_id: Optional[str]
+    source_supertag_name: Optional[str]
+
+@dataclass
+class FieldMapping:
+    field_id: str
+    frontmatter_name: str
+    include: bool
+    transform: str  # 'none', 'wikilink', 'status'
+
+@dataclass
+class SupertagConfig:
+    supertag_id: str
+    include: bool
+    field_mappings: List[FieldMapping]
+```
+
+### Default Behaviors
+
+- **Done field**: Maps to `status` frontmatter ("done"/"open")
+- **Options-from-supertag fields**: Generate `[[wikilinks]]` to target markdown
+- **#day nodes**: Convert to Daily Notes
+- **#week, #year**: Skipped by default
+- **#field-definition**: Always skipped
+
+### Removed Options
+
+- Skip Readwise nodes (removed from UI)
+- Skip Highlight nodes (removed from UI)
+- Skip Field Definition nodes (handled automatically)
+- Hardcoded field IDs in ConversionSettings

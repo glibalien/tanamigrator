@@ -2,7 +2,47 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Dict
+
+
+@dataclass
+class FieldInfo:
+    """Information about a supertag field discovered during scanning."""
+    id: str
+    name: str
+    field_type: str  # 'plain', 'options_from_supertag', 'system_done'
+    source_supertag_id: Optional[str] = None  # For options_from_supertag fields
+    source_supertag_name: Optional[str] = None
+
+
+@dataclass
+class SupertagInfo:
+    """Information about a discovered supertag."""
+    id: str
+    name: str
+    instance_count: int = 0
+    fields: List[FieldInfo] = field(default_factory=list)
+    is_system: bool = False  # SYS_* prefix
+    special_type: Optional[str] = None  # 'day', 'week', 'year', 'field-definition'
+
+
+@dataclass
+class FieldMapping:
+    """User-configured mapping for a field to frontmatter."""
+    field_id: str
+    field_name: str
+    frontmatter_name: str
+    include: bool = True
+    transform: str = 'none'  # 'none', 'wikilink', 'status'
+
+
+@dataclass
+class SupertagConfig:
+    """User configuration for how to handle a supertag during conversion."""
+    supertag_id: str
+    supertag_name: str
+    include: bool = True
+    field_mappings: List[FieldMapping] = field(default_factory=list)
 
 
 @dataclass
@@ -11,15 +51,21 @@ class ConversionSettings:
     json_path: Path
     output_dir: Path
 
-    # Export options
+    # Supertag configurations (new in v2)
+    supertag_configs: List[SupertagConfig] = field(default_factory=list)
+
+    # Global options (simplified in v2)
     download_images: bool = True
-    skip_readwise: bool = True
     skip_week_nodes: bool = True
     skip_year_nodes: bool = True
-    skip_highlights: bool = True
-    skip_field_definitions: bool = True
 
-    # Field ID overrides (for users with different Tana setups)
+    # Legacy options (kept for backward compatibility but not exposed in UI)
+    skip_readwise: bool = False
+    skip_highlights: bool = False
+    skip_field_definitions: bool = True  # Always true in v2
+
+    # Legacy field IDs (deprecated - now handled via supertag_configs)
+    # Kept for backward compatibility with existing converter code during transition
     project_field_id: str = 'zaD_EkMhKP'
     people_involved_field_id: str = 'znaT5AHKXQkR'
     company_field_id: str = 'LNd_B370Hr'
@@ -51,3 +97,65 @@ class ConversionResult:
     single_files: int = 0
     merged_files: int = 0
     error_message: str = ""
+
+
+def create_default_field_mappings(supertag_info: SupertagInfo) -> List[FieldMapping]:
+    """Create default field mappings for a supertag based on discovered fields.
+
+    Default behaviors:
+    - options_from_supertag fields: transform to wikilink
+    - system_done field: transform to status (done/open)
+    - plain fields: no transform, use lowercase field name
+    """
+    mappings = []
+
+    for field_info in supertag_info.fields:
+        if field_info.field_type == 'options_from_supertag':
+            # Options from supertag -> wikilink to target node
+            mappings.append(FieldMapping(
+                field_id=field_info.id,
+                field_name=field_info.name,
+                frontmatter_name=field_info.name.lower().replace(' ', '_'),
+                include=True,
+                transform='wikilink'
+            ))
+        elif field_info.field_type == 'system_done':
+            # Done field -> status frontmatter
+            mappings.append(FieldMapping(
+                field_id=field_info.id,
+                field_name=field_info.name,
+                frontmatter_name='status',
+                include=True,
+                transform='status'
+            ))
+        else:
+            # Plain field -> lowercase name, no transform
+            mappings.append(FieldMapping(
+                field_id=field_info.id,
+                field_name=field_info.name,
+                frontmatter_name=field_info.name.lower().replace(' ', '_'),
+                include=True,
+                transform='none'
+            ))
+
+    return mappings
+
+
+def create_default_supertag_config(supertag_info: SupertagInfo) -> SupertagConfig:
+    """Create default configuration for a supertag.
+
+    Default behaviors:
+    - Include all supertags except week, year, field-definition
+    - Auto-generate field mappings based on field types
+    """
+    # Determine if this supertag should be included by default
+    include = True
+    if supertag_info.special_type in ('week', 'year', 'field-definition'):
+        include = False
+
+    return SupertagConfig(
+        supertag_id=supertag_info.id,
+        supertag_name=supertag_info.name,
+        include=include,
+        field_mappings=create_default_field_mappings(supertag_info)
+    )

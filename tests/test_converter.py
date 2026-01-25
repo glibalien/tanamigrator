@@ -53,10 +53,10 @@ class TestConversionSettings:
             output_dir=temp_output_dir,
         )
         assert settings.download_images is True
-        assert settings.skip_readwise is True
+        assert settings.skip_readwise is False  # Changed in v2: not exposed in UI
         assert settings.skip_week_nodes is True
         assert settings.skip_year_nodes is True
-        assert settings.skip_highlights is True
+        assert settings.skip_highlights is False  # Changed in v2: not exposed in UI
         assert settings.skip_field_definitions is True
         assert settings.project_field_id == "zaD_EkMhKP"
 

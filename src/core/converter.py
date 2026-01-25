@@ -40,13 +40,6 @@ class TanaToObsidian:
         self.json_path = settings.json_path
         self.output_dir = Path(settings.output_dir)
 
-        # Field IDs from settings
-        self.project_field_id = settings.project_field_id
-        self.people_involved_field_id = settings.people_involved_field_id
-        self.company_field_id = settings.company_field_id
-        self.cookbook_field_id = settings.cookbook_field_id
-        self.url_field_id = settings.url_field_id
-
         # Internal state
         self.docs = []
         self.doc_map = {}
@@ -85,13 +78,6 @@ class TanaToObsidian:
                 config.supertag_id for config in settings.supertag_configs
                 if config.include
             }
-
-        # Indices for field values (populated via tuples)
-        self.meeting_projects = {}  # meeting_id -> list of project node IDs
-        self.meeting_people = {}  # meeting_id -> list of person node IDs
-        self.person_companies = {}  # person_id -> list of company node IDs
-        self.recipe_cookbooks = {}  # recipe_id -> list of cookbook node IDs
-        self.node_urls = {}  # node_id -> URL string
 
         # General field value index for dynamic frontmatter
         # node_id -> {field_id: [value_node_ids]}
@@ -282,63 +268,6 @@ class TanaToObsidian:
                             self.metanode_tags[owner_id].add(cid)
 
         self.report_progress("Indexing", message=f"Built metanode->tags map with {len(self.metanode_tags)} entries")
-        self.check_cancelled()
-
-        # Build meeting -> project/people indices via tuples
-        for doc in self.docs:
-            if doc.get('props', {}).get('_docType') == 'tuple':
-                children = doc.get('children', [])
-                owner_id = doc.get('props', {}).get('_ownerId')
-                if not owner_id or len(children) < 2:
-                    continue
-
-                # Check for Project field
-                if self.project_field_id in children:
-                    value_ids = [c for c in children if c != self.project_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.meeting_projects:
-                                self.meeting_projects[owner_id] = []
-                            self.meeting_projects[owner_id].append(value_id)
-
-                # Check for People Involved field
-                if self.people_involved_field_id in children:
-                    value_ids = [c for c in children if c != self.people_involved_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.meeting_people:
-                                self.meeting_people[owner_id] = []
-                            self.meeting_people[owner_id].append(value_id)
-
-                # Check for Company field (on #person nodes)
-                if self.company_field_id in children:
-                    value_ids = [c for c in children if c != self.company_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.person_companies:
-                                self.person_companies[owner_id] = []
-                            self.person_companies[owner_id].append(value_id)
-
-                # Check for Cookbook field (on #recipe nodes)
-                if self.cookbook_field_id in children:
-                    value_ids = [c for c in children if c != self.cookbook_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.recipe_cookbooks:
-                                self.recipe_cookbooks[owner_id] = []
-                            self.recipe_cookbooks[owner_id].append(value_id)
-
-                # Check for URL field (SYS_A78) - stores URL as node name
-                if self.url_field_id in children:
-                    value_ids = [c for c in children if c != self.url_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            url_node = self.doc_map[value_id]
-                            url_value = url_node.get('props', {}).get('name', '')
-                            if url_value and url_value.startswith(('http://', 'https://')):
-                                self.node_urls[owner_id] = html.unescape(url_value)
-
-        self.report_progress("Indexing", message="Built field indices")
         self.check_cancelled()
 
         # Build general field value index for configured fields
@@ -946,110 +875,6 @@ class TanaToObsidian:
                 return child
         return None
 
-    def get_project_reference(self, doc: dict) -> list:
-        """Get the project reference(s) for a node, if it has any.
-
-        Returns a list of project filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        projects = []
-
-        # Check if this node has project references via tuples
-        if doc_id in self.meeting_projects:
-            for project_node_id in self.meeting_projects[doc_id]:
-                if project_node_id in self.doc_map:
-                    project_node = self.doc_map[project_node_id]
-                    project_name = project_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(project_name)
-                    if clean_name:
-                        # Check if this project node was exported - use its actual filename
-                        if project_node_id in self.exported_files:
-                            projects.append(self.exported_files[project_node_id])
-                        else:
-                            projects.append(self.sanitize_filename(clean_name))
-
-        return projects
-
-    def get_people_involved(self, doc: dict) -> list:
-        """Get the people involved references for a node.
-
-        Returns a list of person filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        people = []
-
-        # Check if this node has people references via tuples
-        if doc_id in self.meeting_people:
-            for person_node_id in self.meeting_people[doc_id]:
-                if person_node_id in self.doc_map:
-                    person_node = self.doc_map[person_node_id]
-                    person_name = person_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(person_name)
-                    if clean_name:
-                        # Check if this person node was exported - use its actual filename
-                        if person_node_id in self.exported_files:
-                            people.append(self.exported_files[person_node_id])
-                        else:
-                            people.append(self.sanitize_filename(clean_name))
-
-        return people
-
-    def get_company_reference(self, doc: dict) -> list:
-        """Get the company references for a node (used for #person nodes).
-
-        Returns a list of company filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        companies = []
-
-        # Check if this node has company references via tuples
-        if doc_id in self.person_companies:
-            for company_node_id in self.person_companies[doc_id]:
-                if company_node_id in self.doc_map:
-                    company_node = self.doc_map[company_node_id]
-                    company_name = company_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(company_name)
-                    if clean_name:
-                        # Check if this company node was exported - use its actual filename
-                        if company_node_id in self.exported_files:
-                            companies.append(self.exported_files[company_node_id])
-                        else:
-                            companies.append(self.sanitize_filename(clean_name))
-
-        return companies
-
-    def get_cookbook_reference(self, doc: dict) -> list:
-        """Get the cookbook references for a node (used for #recipe nodes).
-
-        Returns a list of cookbook filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        cookbooks = []
-
-        # Check if this node has cookbook references via tuples
-        if doc_id in self.recipe_cookbooks:
-            for cookbook_node_id in self.recipe_cookbooks[doc_id]:
-                if cookbook_node_id in self.doc_map:
-                    cookbook_node = self.doc_map[cookbook_node_id]
-                    cookbook_name = cookbook_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(cookbook_name)
-                    if clean_name:
-                        # Check if this cookbook node was exported - use its actual filename
-                        if cookbook_node_id in self.exported_files:
-                            cookbooks.append(self.exported_files[cookbook_node_id])
-                        else:
-                            cookbooks.append(self.sanitize_filename(clean_name))
-
-        return cookbooks
-
-    def get_url_value(self, doc: dict) -> str:
-        """Get the URL field value for a node, if any.
-
-        Returns the URL string or None.
-        """
-        doc_id = doc.get('id')
-        return self.node_urls.get(doc_id)
-
     def get_task_status(self, doc: dict) -> str:
         """Get the task status for a node.
 
@@ -1141,29 +966,24 @@ class TanaToObsidian:
         return self.get_node_created_timestamp(doc)
 
     def create_frontmatter(self, tags: list, doc: dict = None, daily_date: str = None) -> str:
-        """Create YAML frontmatter with tags, date, project reference, people involved, company, cookbook, URL, and task status."""
-        projects = []
-        people_involved = []
-        companies = []
-        cookbooks = []
-        url = None
+        """Create YAML frontmatter with tags, date, task status, and dynamic field values."""
         task_status = None
         completed_date = None
         date_created = None
         date_modified = None
+        dynamic_fields = {}
+
         if doc:
-            projects = self.get_project_reference(doc)
-            people_involved = self.get_people_involved(doc)
-            companies = self.get_company_reference(doc)
-            cookbooks = self.get_cookbook_reference(doc)
-            url = self.get_url_value(doc)
             task_status = self.get_task_status(doc)
             completed_date = self.get_task_completed_date(doc)
             if task_status:
                 date_created = self.get_node_created_timestamp(doc)
                 date_modified = self.get_node_modified_timestamp(doc)
+            # Get dynamic field values from configured supertag fields
+            node_id = doc.get('id', '')
+            dynamic_fields = self.get_all_field_values(node_id)
 
-        if not tags and not projects and not people_involved and not companies and not cookbooks and not url and not daily_date and not task_status:
+        if not tags and not daily_date and not task_status and not dynamic_fields:
             return ''
 
         lines = ['---']
@@ -1184,47 +1004,14 @@ class TanaToObsidian:
                 lines.append(f'  - {tag}')
         if daily_date:
             lines.append(f'Date: "[[{daily_date}]]"')
-        if projects:
-            if len(projects) == 1:
-                lines.append(f'Project: "[[{projects[0]}]]"')
-            else:
-                lines.append('Project:')
-                for project in projects:
-                    lines.append(f'  - "[[{project}]]"')
-        if people_involved:
-            if len(people_involved) == 1:
-                lines.append(f'People Involved: "[[{people_involved[0]}]]"')
-            else:
-                lines.append('People Involved:')
-                for person in people_involved:
-                    lines.append(f'  - "[[{person}]]"')
-        if companies:
-            if len(companies) == 1:
-                lines.append(f'Company: "[[{companies[0]}]]"')
-            else:
-                lines.append('Company:')
-                for company in companies:
-                    lines.append(f'  - "[[{company}]]"')
-        if cookbooks:
-            if len(cookbooks) == 1:
-                lines.append(f'Cookbook: "[[{cookbooks[0]}]]"')
-            else:
-                lines.append('Cookbook:')
-                for cookbook in cookbooks:
-                    lines.append(f'  - "[[{cookbook}]]"')
-        if url:
-            lines.append(f'URL: "{url}"')
 
         # Add dynamic field values from configured supertag fields
-        if doc:
-            node_id = doc.get('id', '')
-            dynamic_fields = self.get_all_field_values(node_id)
-            for field_name, field_value in dynamic_fields.items():
-                # Skip fields we've already handled above (to avoid duplicates)
-                if field_name.lower() in ('status', 'project', 'people_involved', 'company', 'cookbook', 'url'):
-                    continue
-                # Format the value for YAML
-                lines.append(self._format_frontmatter_field(field_name, field_value))
+        for field_name, field_value in dynamic_fields.items():
+            # Skip status if we've already added task status above
+            if field_name.lower() == 'status' and task_status:
+                continue
+            # Format the value for YAML
+            lines.append(self._format_frontmatter_field(field_name, field_value))
 
         lines.append('---')
         lines.append('')
@@ -1262,18 +1049,12 @@ class TanaToObsidian:
                 return f'{field_name}: "{val_str}"'
             return f'{field_name}: {val_str}'
 
-    def create_merged_frontmatter(self, tags: set, projects: set, people: set,
-                                   companies: set, cookbooks: set = None, urls: set = None,
+    def create_merged_frontmatter(self, tags: set, dynamic_fields: dict,
                                    earliest_date: str = None, task_status: str = None,
                                    completed_date: str = None, date_created: str = None,
                                    date_modified: str = None) -> str:
         """Create YAML frontmatter from aggregated/merged data."""
-        if cookbooks is None:
-            cookbooks = set()
-        if urls is None:
-            urls = set()
-
-        if not tags and not projects and not people and not companies and not cookbooks and not urls and not earliest_date and not task_status:
+        if not tags and not dynamic_fields and not earliest_date and not task_status:
             return ''
 
         lines = ['---']
@@ -1294,42 +1075,17 @@ class TanaToObsidian:
                 lines.append(f'  - {tag}')
         if earliest_date:
             lines.append(f'Date: "[[{earliest_date}]]"')
-        if projects:
-            sorted_projects = sorted(projects)
-            if len(sorted_projects) == 1:
-                lines.append(f'Project: "[[{sorted_projects[0]}]]"')
-            else:
-                lines.append('Project:')
-                for project in sorted_projects:
-                    lines.append(f'  - "[[{project}]]"')
-        if people:
-            sorted_people = sorted(people)
-            if len(sorted_people) == 1:
-                lines.append(f'People Involved: "[[{sorted_people[0]}]]"')
-            else:
-                lines.append('People Involved:')
-                for person in sorted_people:
-                    lines.append(f'  - "[[{person}]]"')
-        if companies:
-            sorted_companies = sorted(companies)
-            if len(sorted_companies) == 1:
-                lines.append(f'Company: "[[{sorted_companies[0]}]]"')
-            else:
-                lines.append('Company:')
-                for company in sorted_companies:
-                    lines.append(f'  - "[[{company}]]"')
-        if cookbooks:
-            sorted_cookbooks = sorted(cookbooks)
-            if len(sorted_cookbooks) == 1:
-                lines.append(f'Cookbook: "[[{sorted_cookbooks[0]}]]"')
-            else:
-                lines.append('Cookbook:')
-                for cookbook in sorted_cookbooks:
-                    lines.append(f'  - "[[{cookbook}]]"')
-        if urls:
-            # Use the first URL if there are multiple (shouldn't normally happen)
-            sorted_urls = sorted(urls)
-            lines.append(f'URL: "{sorted_urls[0]}"')
+
+        # Add dynamic field values
+        for field_name, field_values in sorted(dynamic_fields.items()):
+            # Skip status if we've already added task status above
+            if field_name.lower() == 'status' and task_status:
+                continue
+            # Convert set to sorted list for consistent output
+            if isinstance(field_values, set):
+                field_values = sorted(field_values)
+            lines.append(self._format_frontmatter_field(field_name, field_values))
+
         lines.append('---')
         lines.append('')
 
@@ -1352,11 +1108,7 @@ class TanaToObsidian:
 
             # Collect aggregated frontmatter data
             all_tags = set()
-            all_projects = set()
-            all_people = set()
-            all_companies = set()
-            all_cookbooks = set()
-            all_urls = set()
+            all_dynamic_fields = {}  # field_name -> set of values
             earliest_date = None
             folder = entries[0][2]  # Use folder from first entry
             # For task status: track if any task is done and if any is a task
@@ -1368,13 +1120,21 @@ class TanaToObsidian:
 
             for date, doc, _ in entries:
                 all_tags.update(self.get_node_tags(doc))
-                all_projects.update(self.get_project_reference(doc))
-                all_people.update(self.get_people_involved(doc))
-                all_companies.update(self.get_company_reference(doc))
-                all_cookbooks.update(self.get_cookbook_reference(doc))
-                url = self.get_url_value(doc)
-                if url:
-                    all_urls.add(url)
+                # Aggregate dynamic field values
+                node_id = doc.get('id', '')
+                node_fields = self.get_all_field_values(node_id)
+                for field_name, field_value in node_fields.items():
+                    if field_name not in all_dynamic_fields:
+                        all_dynamic_fields[field_name] = set()
+                    # Add value(s) to the set
+                    if isinstance(field_value, list):
+                        all_dynamic_fields[field_name].update(field_value)
+                    elif isinstance(field_value, bool):
+                        # For booleans, keep track of True/False separately
+                        all_dynamic_fields[field_name].add(field_value)
+                    else:
+                        all_dynamic_fields[field_name].add(field_value)
+
                 if date and (not earliest_date or date < earliest_date):
                     earliest_date = date
                 # Check task status
@@ -1410,8 +1170,7 @@ class TanaToObsidian:
 
             # Build frontmatter
             frontmatter = self.create_merged_frontmatter(
-                all_tags, all_projects, all_people, all_companies,
-                all_cookbooks, all_urls, earliest_date, task_status, completed_date,
+                all_tags, all_dynamic_fields, earliest_date, task_status, completed_date,
                 date_created, date_modified
             )
 

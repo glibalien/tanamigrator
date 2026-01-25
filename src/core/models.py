@@ -67,14 +67,6 @@ class ConversionSettings:
     skip_week_nodes: bool = True  # Legacy - now handled via supertag selection
     skip_year_nodes: bool = True  # Legacy - now handled via supertag selection
 
-    # Legacy field IDs (deprecated - now handled via supertag_configs)
-    # Kept for backward compatibility with existing converter code during transition
-    project_field_id: str = 'zaD_EkMhKP'
-    people_involved_field_id: str = 'znaT5AHKXQkR'
-    company_field_id: str = 'LNd_B370Hr'
-    cookbook_field_id: str = 'Y_572Dtvp_QO'
-    url_field_id: str = 'SYS_A78'
-
 
 @dataclass
 class ConversionProgress:

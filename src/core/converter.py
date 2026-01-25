@@ -78,6 +78,14 @@ class TanaToObsidian:
         self.image_urls = {}  # node_id -> firebase_url
         self.image_metadata_urls = {}  # node_id -> firebase_url
 
+        # Selected supertags filter (from wizard selection)
+        self.selected_supertag_ids = set()
+        if settings.supertag_configs:
+            self.selected_supertag_ids = {
+                config.supertag_id for config in settings.supertag_configs
+                if config.include
+            }
+
         # Indices for field values (populated via tuples)
         self.meeting_projects = {}  # meeting_id -> list of project node IDs
         self.meeting_people = {}  # meeting_id -> list of person node IDs
@@ -429,7 +437,12 @@ class TanaToObsidian:
         return tags
 
     def has_supertag(self, doc: dict) -> bool:
-        """Check if a node has any supertag (excluding day tag for daily notes)."""
+        """Check if a node has a supertag that should be exported.
+
+        If supertag selection was used (selected_supertag_ids is populated),
+        only returns True for nodes tagged with selected supertags.
+        Otherwise, returns True for any supertag (excluding day tag).
+        """
         meta_id = doc.get('props', {}).get('_metaNodeId')
         if not meta_id or meta_id not in self.metanode_tags:
             return False
@@ -440,7 +453,12 @@ class TanaToObsidian:
             if tid != self.day_tag_id and tid in self.supertags:
                 tag_name = self.supertags[tid]
                 if not tag_name.startswith('(') and tag_name:
-                    return True
+                    # If we have a supertag selection, only include selected tags
+                    if self.selected_supertag_ids:
+                        if tid in self.selected_supertag_ids:
+                            return True
+                    else:
+                        return True
         return False
 
     def has_tag(self, doc: dict, tag_id: str) -> bool:

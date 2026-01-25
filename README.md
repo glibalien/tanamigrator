@@ -7,9 +7,8 @@ A cross-platform desktop application that converts Tana exports to Obsidian-comp
 - **Wizard-based interface** - Simple 3-step process: Select File → Select Supertags → Convert
 - **Automatic supertag discovery** - Scans your export to find all supertags and their fields
 - **Dynamic field mapping** - Field values automatically extracted to YAML frontmatter
-- Daily notes exported to `Daily Notes/YYYY-MM-DD.md`
-- Tagged nodes become separate markdown files with YAML frontmatter
-- Tasks are placed in a dedicated `Tasks/` folder
+- **Configurable output folders** - Customize where each supertag's files are saved
+- **Smart wikilinks** - Field values with supertags automatically become `[[wikilinks]]`
 - References converted to `[[Obsidian links]]`
 - Images downloaded from Firebase and embedded as `![[attachments]]`
 - Progress tracking with cancel support
@@ -48,14 +47,18 @@ python -m src.main
 3. **Step 1 - Select File**:
    - Choose your Tana export JSON file
    - Optionally ignore items in Tana trash
-   - Click Next to scan the export
+   - Click Next to scan the export (progress bar shows scanning status)
 4. **Step 2 - Select Supertags**:
    - Review discovered supertags and their instance counts
    - Check/uncheck supertags to include in conversion
+   - Optionally include referenced Library nodes without supertags
    - Field mappings are auto-configured based on field types
 5. **Step 3 - Configure and Convert**:
    - Choose output directory
-   - Configure options (download images, include library nodes)
+   - **Configure output folders** for each supertag (e.g., Daily Notes, Tasks, Projects)
+   - Set attachments folder for images
+   - Set folder for untagged Library nodes (if enabled)
+   - Configure options (download images)
    - Click Convert and watch the progress
 6. **Open in Obsidian**: Point Obsidian to your output directory
 
@@ -65,13 +68,24 @@ python -m src.main
 
 | Tana | Obsidian |
 |------|----------|
-| Daily notes (`journalPart`) | `Daily Notes/YYYY-MM-DD.md` |
-| Nodes with `#task` tag | `Tasks/<name>.md` |
-| Nodes with other supertags | `<name>.md` with YAML tags |
+| Daily notes (`#day`) | Configurable folder (default: root) |
+| Nodes with `#task` tag | Configurable folder (default: root) |
+| Nodes with other supertags | Configurable folders with YAML frontmatter |
 | Inline references | `[[wikilinks]]` |
 | Date references | `[[YYYY-MM-DD]]` |
-| Firebase images | `![[Attachments/image.png]]` |
+| Firebase images | `![[Attachments/image.png]]` (folder configurable) |
 | Bold/italic | `**bold**` / `*italic*` |
+
+### Output Folder Configuration
+
+In Step 3, you can specify a subfolder for each selected supertag:
+- **#day** → "Daily Notes" (suggested default)
+- **#task** → "Tasks" (suggested default)
+- **#project** → "Projects" (or any custom folder)
+- **Attachments** → Where images are saved
+- **Untagged Library** → Where referenced nodes without supertags are saved
+
+Leave a folder blank to save files in the root output directory.
 
 ### YAML Frontmatter
 
@@ -82,9 +96,17 @@ Tagged nodes include frontmatter with:
 - `completedDate`: When task was completed
 - **Dynamic fields**: Any field values from your supertags are automatically included
   - Reference fields (options from supertag) → `[[wikilinks]]`
+  - Field values that have supertags → automatically `[[wikilinks]]`
   - Checkbox fields → `true`/`false`
   - Options fields → selected option value
   - Text, URL, date, number fields → plain values
+
+### Library Nodes
+
+When "Include Library nodes without supertags if they are referenced by an exported node" is enabled:
+- Referenced nodes without supertags get their own markdown files
+- Nodes WITH supertags are only exported if that supertag is selected
+- Wikilinks to unselected supertag nodes remain as links (but no file is created)
 
 ### Skipped Content
 

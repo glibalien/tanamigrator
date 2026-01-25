@@ -137,7 +137,10 @@ class TanaToObsidian:
             if value_doc:
                 value_name = value_doc.get('props', {}).get('name', '')
                 if value_name:
-                    values.append(value_name)
+                    # Clean the value to handle inline references (dates, nodes, etc.)
+                    clean_value = self.clean_node_name(value_name)
+                    if clean_value:
+                        values.append(clean_value)
 
         if not values:
             return None

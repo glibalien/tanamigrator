@@ -1,0 +1,99 @@
+name: Build Executables
+
+on:
+  # Automatically build when a release is created
+  release:
+    types: [created]
+
+  # Allow manual triggering from the Actions tab
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v3.1)'
+        required: false
+        default: 'dev'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Linux needs additional packages for tkinter
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build executable
+        run: python build/build.py
+
+      # Determine version for zip filename
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version || 'dev' }}" >> $GITHUB_OUTPUT
+          fi
+
+      # Package the build output
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          cd dist
+          zip -r TanaToObsidian-linux-${{ steps.version.outputs.version }}.zip TanaToObsidian
+
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          cd dist
+          Compress-Archive -Path TanaToObsidian.exe -DestinationPath TanaToObsidian-windows-${{ steps.version.outputs.version }}.zip
+
+      - name: Package (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          cd dist
+          zip -r TanaToObsidian-macos-${{ steps.version.outputs.version }}.zip TanaToObsidian.app
+
+      # Upload as artifact (available for all builds)
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TanaToObsidian-${{ matrix.platform }}-${{ steps.version.outputs.version }}
+          path: dist/*.zip
+
+      # Attach to release (only on release events)
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

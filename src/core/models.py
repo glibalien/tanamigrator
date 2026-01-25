@@ -11,8 +11,10 @@ class FieldInfo:
     id: str
     name: str
     field_type: str  # 'plain', 'options_from_supertag', 'system_done'
+    data_type: str = 'plain'  # 'checkbox', 'options', 'date', 'number', 'url', 'plain'
     source_supertag_id: Optional[str] = None  # For options_from_supertag fields
     source_supertag_name: Optional[str] = None
+    options: List[str] = field(default_factory=list)  # Available options for 'options' data_type
 
 
 @dataclass

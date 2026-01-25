@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Callable, Optional
 from urllib.parse import unquote, urlparse
 
-from .models import ConversionSettings, ConversionProgress, ConversionResult
+from .models import ConversionSettings, ConversionProgress, ConversionResult, FieldInfo
 from .exceptions import ConversionCancelled, FileAccessError
 
 
@@ -92,6 +92,110 @@ class TanaToObsidian:
         self.person_companies = {}  # person_id -> list of company node IDs
         self.recipe_cookbooks = {}  # recipe_id -> list of cookbook node IDs
         self.node_urls = {}  # node_id -> URL string
+
+        # General field value index for dynamic frontmatter
+        # node_id -> {field_id: [value_node_ids]}
+        self.node_field_values = {}
+
+        # Build field_id -> field_info lookup from supertag_configs
+        self.field_info_map = {}  # field_id -> FieldInfo (from supertag_configs)
+        self._build_field_info_map()
+
+    def _build_field_info_map(self):
+        """Build a lookup from field_id to FieldInfo from supertag_configs."""
+        for config in self.settings.supertag_configs:
+            if not config.include:
+                continue
+            for mapping in config.field_mappings:
+                if mapping.include:
+                    # We need to find the FieldInfo - it's not directly available in FieldMapping
+                    # Store mapping info for now, we'll enhance this when we have scanner data
+                    self.field_info_map[mapping.field_id] = {
+                        'field_id': mapping.field_id,
+                        'field_name': mapping.field_name,
+                        'frontmatter_name': mapping.frontmatter_name,
+                        'transform': mapping.transform,
+                    }
+
+    def get_field_value(self, node_id: str, field_id: str):
+        """Get the value(s) for a specific field on a node.
+
+        Returns the resolved value(s) based on field type:
+        - For reference fields: returns the node name(s)
+        - For text/option fields: returns the value text
+        - For checkbox fields: returns True/False based on SYS_V03 presence
+
+        Returns: single value or list of values, or None if not set
+        """
+        if node_id not in self.node_field_values:
+            return None
+
+        node_fields = self.node_field_values[node_id]
+        if field_id not in node_fields:
+            return None
+
+        value_ids = node_fields[field_id]
+        if not value_ids:
+            return None
+
+        values = []
+        for value_id in value_ids:
+            # Check for checkbox "Yes" value
+            if value_id == 'SYS_V03':
+                return True
+            elif value_id == 'SYS_V04':  # "No" value
+                return False
+
+            # Get value from doc
+            value_doc = self.doc_map.get(value_id)
+            if value_doc:
+                value_name = value_doc.get('props', {}).get('name', '')
+                if value_name:
+                    values.append(value_name)
+
+        if not values:
+            return None
+        elif len(values) == 1:
+            return values[0]
+        else:
+            return values
+
+    def get_all_field_values(self, node_id: str) -> dict:
+        """Get all configured field values for a node.
+
+        Returns dict with frontmatter_name as key and formatted value.
+        Only includes fields that have values set.
+        """
+        result = {}
+
+        if node_id not in self.node_field_values:
+            return result
+
+        for field_id, mapping_info in self.field_info_map.items():
+            value = self.get_field_value(node_id, field_id)
+            if value is None:
+                continue
+
+            frontmatter_name = mapping_info['frontmatter_name']
+            transform = mapping_info['transform']
+
+            # Apply transform
+            if transform == 'wikilink':
+                if isinstance(value, list):
+                    result[frontmatter_name] = [f'[[{v}]]' for v in value]
+                else:
+                    result[frontmatter_name] = f'[[{value}]]'
+            elif transform == 'status':
+                # Status transform: convert to done/open based on boolean
+                if isinstance(value, bool):
+                    result[frontmatter_name] = 'done' if value else 'open'
+                else:
+                    result[frontmatter_name] = value
+            else:
+                # No transform
+                result[frontmatter_name] = value
+
+        return result
 
     def report_progress(self, phase: str, current: int = 0, total: int = 0, message: str = ""):
         """Send progress update to GUI."""
@@ -236,6 +340,32 @@ class TanaToObsidian:
 
         self.report_progress("Indexing", message="Built field indices")
         self.check_cancelled()
+
+        # Build general field value index for configured fields
+        # This indexes all field values for nodes, keyed by field_id
+        configured_field_ids = set(self.field_info_map.keys())
+        if configured_field_ids:
+            for doc in self.docs:
+                if doc.get('props', {}).get('_docType') == 'tuple':
+                    children = doc.get('children', [])
+                    owner_id = doc.get('props', {}).get('_ownerId')
+                    if not owner_id or len(children) < 2:
+                        continue
+
+                    # Check if any child is a configured field
+                    for field_id in configured_field_ids:
+                        if field_id in children:
+                            # Get value node IDs (everything except the field ID and system nodes)
+                            value_ids = [c for c in children if c != field_id and not c.startswith('SYS_')]
+                            if value_ids:
+                                if owner_id not in self.node_field_values:
+                                    self.node_field_values[owner_id] = {}
+                                if field_id not in self.node_field_values[owner_id]:
+                                    self.node_field_values[owner_id][field_id] = []
+                                self.node_field_values[owner_id][field_id].extend(value_ids)
+
+            self.report_progress("Indexing", message=f"Indexed field values for {len(self.node_field_values)} nodes")
+            self.check_cancelled()
 
         # Build image URL index - map node IDs to their Firebase URLs
         for doc in self.docs:
@@ -1084,10 +1214,53 @@ class TanaToObsidian:
                     lines.append(f'  - "[[{cookbook}]]"')
         if url:
             lines.append(f'URL: "{url}"')
+
+        # Add dynamic field values from configured supertag fields
+        if doc:
+            node_id = doc.get('id', '')
+            dynamic_fields = self.get_all_field_values(node_id)
+            for field_name, field_value in dynamic_fields.items():
+                # Skip fields we've already handled above (to avoid duplicates)
+                if field_name.lower() in ('status', 'project', 'people_involved', 'company', 'cookbook', 'url'):
+                    continue
+                # Format the value for YAML
+                lines.append(self._format_frontmatter_field(field_name, field_value))
+
         lines.append('---')
         lines.append('')
 
         return '\n'.join(lines)
+
+    def _format_frontmatter_field(self, field_name: str, field_value) -> str:
+        """Format a field value for YAML frontmatter.
+
+        Handles:
+        - Booleans -> lowercase true/false
+        - Lists -> YAML list format
+        - Strings with special chars -> quoted
+        - Numbers -> unquoted
+        """
+        if isinstance(field_value, bool):
+            return f'{field_name}: {str(field_value).lower()}'
+        elif isinstance(field_value, list):
+            if len(field_value) == 1:
+                return self._format_frontmatter_field(field_name, field_value[0])
+            lines = [f'{field_name}:']
+            for val in field_value:
+                # Quote strings that contain special characters
+                if isinstance(val, str) and any(c in val for c in ':#{}[]|>&*!'):
+                    lines.append(f'  - "{val}"')
+                else:
+                    lines.append(f'  - {val}')
+            return '\n'.join(lines)
+        elif isinstance(field_value, (int, float)):
+            return f'{field_name}: {field_value}'
+        else:
+            # String value - quote if it contains special YAML characters
+            val_str = str(field_value)
+            if any(c in val_str for c in ':#{}[]|>&*!') or val_str.startswith('"'):
+                return f'{field_name}: "{val_str}"'
+            return f'{field_name}: {val_str}'
 
     def create_merged_frontmatter(self, tags: set, projects: set, people: set,
                                    companies: set, cookbooks: set = None, urls: set = None,

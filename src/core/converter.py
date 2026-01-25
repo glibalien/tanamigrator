@@ -48,17 +48,12 @@ class TanaToObsidian:
         self.node_names = {}  # node_id -> clean name (for reference resolution)
         self.task_tag_id = None
         self.day_tag_id = None
-        self.week_tag_id = None
-        self.year_tag_id = None
-        self.readwise_tag_id = None
         self.meeting_tag_id = None
         self.note_tag_id = None
         self.project_tag_id = None
         self.person_tag_id = None
         self.one_on_one_tag_id = None  # 1:1 tag (maps to meeting)
         self.recipe_tag_id = None
-        self.highlight_tag_ids = set()  # Can have multiple tags with same name
-        self.field_definition_tag_ids = set()  # Can have multiple tags with same name
         self.exported_files = {}  # node_id -> filename (without .md)
         self.used_filenames = {}  # filename -> node_id (to track duplicates)
         self.referenced_nodes = set()  # node IDs referenced in content via [[links]]
@@ -307,12 +302,6 @@ class TanaToObsidian:
                     self.task_tag_id = doc['id']
                 elif tag_name.lower() == 'day':
                     self.day_tag_id = doc['id']
-                elif tag_name.lower() == 'week':
-                    self.week_tag_id = doc['id']
-                elif tag_name.lower() == 'year':
-                    self.year_tag_id = doc['id']
-                elif tag_name.lower() == 'readwise':
-                    self.readwise_tag_id = doc['id']
                 elif tag_name.lower() == 'meeting' and not tag_name.startswith('(') and 'base type' not in tag_name.lower():
                     # Prefer the non-system meeting tag
                     if not self.meeting_tag_id or not doc['id'].startswith('SYS_'):
@@ -327,10 +316,6 @@ class TanaToObsidian:
                     self.person_tag_id = doc['id']
                 elif tag_name.lower() == 'recipe':
                     self.recipe_tag_id = doc['id']
-                elif tag_name.lower() == 'highlight':
-                    self.highlight_tag_ids.add(doc['id'])
-                elif tag_name.lower() == 'field-definition' or tag_name.lower() == 'field definition':
-                    self.field_definition_tag_ids.add(doc['id'])
 
         self.report_progress("Indexing", message=f"Found {len(self.supertags)} supertags")
         self.check_cancelled()
@@ -1365,34 +1350,6 @@ class TanaToObsidian:
         if not clean_name:
             return True
 
-        # Skip nodes tagged with #week or #year (if configured)
-        if self.settings.skip_week_nodes and self.week_tag_id and self.has_tag(doc, self.week_tag_id):
-            return True
-        if self.settings.skip_year_nodes and self.year_tag_id and self.has_tag(doc, self.year_tag_id):
-            return True
-
-        # Skip nodes tagged with #highlight or #field-definition (if configured)
-        if self.settings.skip_highlights:
-            for highlight_id in self.highlight_tag_ids:
-                if self.has_tag(doc, highlight_id):
-                    return True
-        if self.settings.skip_field_definitions:
-            for field_def_id in self.field_definition_tag_ids:
-                if self.has_tag(doc, field_def_id):
-                    return True
-
-        # Skip Readwise integration nodes (if configured)
-        if self.settings.skip_readwise:
-            if self.readwise_tag_id and self.has_tag(doc, self.readwise_tag_id):
-                return True
-            # Also skip if name contains Readwise indicators
-            if 'readwise' in name.lower():
-                return True
-
-        # Skip nodes with "(highlights)" in the title
-        if '(highlights)' in clean_name.lower():
-            return True
-
         # Skip files that would be named like "! 2.md", "!11.md", etc.
         if re.match(r'^!+\s*\d*$', clean_name.strip()):
             return True
@@ -1426,22 +1383,6 @@ class TanaToObsidian:
                                '_STASH', '_SEARCHES', '_QUICK_ADD', '_SIDEBAR_AREAS',
                                '_AVATAR', '_USERS', '_CHATDRAFTS', '_MOVETO',
                                '_CAPTURE_INBOX', '_PINS', '_TRAILING_SIDEBAR')):
-            return True
-
-        # Skip nodes tagged with skippable tags (using settings)
-        if self.settings.skip_week_nodes and self.week_tag_id and self.has_tag(doc, self.week_tag_id):
-            return True
-        if self.settings.skip_year_nodes and self.year_tag_id and self.has_tag(doc, self.year_tag_id):
-            return True
-        if self.settings.skip_highlights:
-            for highlight_id in self.highlight_tag_ids:
-                if self.has_tag(doc, highlight_id):
-                    return True
-        if self.settings.skip_field_definitions:
-            for field_def_id in self.field_definition_tag_ids:
-                if self.has_tag(doc, field_def_id):
-                    return True
-        if self.settings.skip_readwise and self.readwise_tag_id and self.has_tag(doc, self.readwise_tag_id):
             return True
 
         return False

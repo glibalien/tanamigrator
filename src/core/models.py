@@ -57,18 +57,11 @@ class ConversionSettings:
     # Supertag configurations (new in v2)
     supertag_configs: List[SupertagConfig] = field(default_factory=list)
 
-    # Global options (simplified in v2)
+    # Global options
     download_images: bool = True
     include_library_nodes: bool = True  # Include referenced nodes without supertags
     attachments_folder: str = "Attachments"  # Subfolder for images/attachments
     untagged_library_folder: str = ""  # Subfolder for untagged library nodes (empty = root)
-
-    # Legacy options (kept for backward compatibility but not exposed in UI)
-    skip_readwise: bool = False
-    skip_highlights: bool = False
-    skip_field_definitions: bool = True  # Always true in v2
-    skip_week_nodes: bool = True  # Legacy - now handled via supertag selection
-    skip_year_nodes: bool = True  # Legacy - now handled via supertag selection
 
 
 @dataclass

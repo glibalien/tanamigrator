@@ -96,7 +96,7 @@ Conversion phases:
 2. Tagged nodes collection from daily notes
 3. Orphan tagged nodes (not under daily notes)
 4. Write merged files (same-named nodes merged)
-5. Referenced library nodes (if enabled, only untagged ones)
+5. Referenced untagged nodes (if enabled)
 
 ### Models (`src/core/models.py`)
 

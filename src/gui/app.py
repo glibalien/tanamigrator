@@ -57,6 +57,10 @@ class TanaToObsidianApp(ctk.CTk):
         self.supertag_configs: Dict[str, SupertagConfig] = {}
         self.include_library_nodes: bool = True
 
+        # Scanning state
+        self.scan_thread: Optional[threading.Thread] = None
+        self.is_scanning = False
+
         # Conversion state
         self.conversion_thread: Optional[threading.Thread] = None
         self.cancel_event = threading.Event()
@@ -143,7 +147,13 @@ class TanaToObsidianApp(ctk.CTk):
             font=("", 12),
             text_color="gray"
         )
-        self.step1_status.pack(anchor="w", padx=20, pady=20)
+        self.step1_status.pack(anchor="w", padx=20, pady=(20, 5))
+
+        # Progress bar for scanning (hidden initially)
+        self.scan_progress = ctk.CTkProgressBar(self.step1_frame, width=550)
+        self.scan_progress.pack(fill="x", padx=20, pady=(0, 20))
+        self.scan_progress.set(0)
+        self.scan_progress.pack_forget()  # Hide initially
 
     def _create_step2_content(self):
         """Create content for Step 2: Supertag Selection."""
@@ -255,12 +265,18 @@ class TanaToObsidianApp(ctk.CTk):
 
     def _go_next(self):
         """Navigate to next step."""
+        # Don't proceed if scanning is in progress
+        if self.is_scanning:
+            return
+
         # Validate current step before proceeding
         if self.current_step == 0:
             if not self._validate_step1():
                 return
             # Scan the file before moving to step 2
+            # (scan runs async and will advance to step 2 when complete)
             self._scan_export()
+            return  # Don't advance here - _on_scan_complete will do it
 
         elif self.current_step == 1:
             if not self._validate_step2():
@@ -285,6 +301,10 @@ class TanaToObsidianApp(ctk.CTk):
 
     def _validate_step2(self) -> bool:
         """Validate Step 2: Supertag selection."""
+        # Don't proceed if supertags are still loading
+        if self.supertag_selection.is_loading():
+            return False
+
         selected = self.supertag_selection.get_selected_ids()
 
         if not selected:
@@ -306,30 +326,83 @@ class TanaToObsidianApp(ctk.CTk):
         return True
 
     def _scan_export(self):
-        """Scan the Tana export to discover supertags."""
-        self.step1_status.configure(text="Scanning export file...")
-        self.update()
+        """Start scanning the Tana export in a background thread."""
+        # Update UI state
+        self.is_scanning = True
+        self.nav_frame.set_step(self.current_step, len(self.STEPS), False)
+        self.nav_frame.next_button.configure(state="disabled")
 
+        # Show progress bar in indeterminate mode
+        self.scan_progress.pack(fill="x", padx=20, pady=(0, 20))
+        self.scan_progress.configure(mode="indeterminate")
+        self.scan_progress.start()
+
+        self.step1_status.configure(text="Loading export file...")
+
+        # Start scanning in background thread
+        self.scan_thread = threading.Thread(
+            target=self._run_scan,
+            daemon=True
+        )
+        self.scan_thread.start()
+
+    def _run_scan(self):
+        """Run the scan in a background thread."""
         try:
             scanner = TanaExportScanner(
                 self.json_path,
-                progress_callback=lambda p: self.after(0, lambda: self.step1_status.configure(
-                    text=f"Scanning: {p.message}"
-                )),
+                progress_callback=self._on_scan_progress,
                 ignore_trash=self.ignore_trash_var.get()
             )
-            self.supertag_infos = scanner.scan()
+            supertag_infos = scanner.scan()
 
-            # Populate the supertag selection list
-            self.supertag_selection.set_supertags(self.supertag_infos)
-
-            self.step1_status.configure(
-                text=f"Found {len(self.supertag_infos)} supertags. Click Next to continue."
-            )
+            # Update UI on main thread
+            self.after(0, lambda: self._on_scan_complete(supertag_infos))
 
         except Exception as e:
-            messagebox.showerror("Scan Error", f"Failed to scan export:\n{str(e)}")
-            self.step1_status.configure(text=f"Scan failed: {str(e)}")
+            # Handle error on main thread
+            self.after(0, lambda: self._on_scan_error(str(e)))
+
+    def _on_scan_progress(self, progress):
+        """Handle scan progress update (called from background thread)."""
+        def update():
+            self.step1_status.configure(text=f"Scanning: {progress.message}")
+        self.after(0, update)
+
+    def _on_scan_complete(self, supertag_infos):
+        """Handle scan completion (called on main thread)."""
+        self.is_scanning = False
+        self.supertag_infos = supertag_infos
+
+        # Stop and hide progress bar
+        self.scan_progress.stop()
+        self.scan_progress.pack_forget()
+
+        # Populate the supertag selection list
+        self.supertag_selection.set_supertags(self.supertag_infos)
+
+        # Update status and re-enable navigation
+        self.step1_status.configure(
+            text=f"Found {len(self.supertag_infos)} supertags. Click Next to continue."
+        )
+        self.nav_frame.next_button.configure(state="normal")
+
+        # Automatically advance to step 2
+        self._show_step(1)
+
+    def _on_scan_error(self, error_message):
+        """Handle scan error (called on main thread)."""
+        self.is_scanning = False
+
+        # Stop and hide progress bar
+        self.scan_progress.stop()
+        self.scan_progress.pack_forget()
+
+        # Update status and re-enable navigation
+        self.step1_status.configure(text=f"Scan failed: {error_message}")
+        self.nav_frame.next_button.configure(state="normal")
+
+        messagebox.showerror("Scan Error", f"Failed to scan export:\n{error_message}")
 
     def _build_supertag_configs(self, selected_ids: List[str]):
         """Build SupertagConfig objects for selected supertags."""

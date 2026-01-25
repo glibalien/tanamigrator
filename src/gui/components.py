@@ -1,9 +1,9 @@
-"""Reusable UI components."""
+"""Reusable UI components for the wizard-based interface."""
 
 import customtkinter as ctk
 from pathlib import Path
 from tkinter import filedialog
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Dict
 
 from .styles import ENTRY_WIDTH, BUTTON_WIDTH, PAD_X, PAD_Y
 
@@ -80,8 +80,171 @@ class FilePickerFrame(ctk.CTkFrame):
         self.entry.configure(state="readonly")
 
 
-class OptionsFrame(ctk.CTkFrame):
-    """A frame containing configuration checkboxes."""
+class StepIndicator(ctk.CTkFrame):
+    """Shows current step in the wizard."""
+
+    def __init__(self, parent, steps: List[str], **kwargs):
+        super().__init__(parent, **kwargs)
+
+        self.steps = steps
+        self.current_step = 0
+        self.step_labels = []
+
+        for i, step_name in enumerate(steps):
+            label = ctk.CTkLabel(
+                self,
+                text=f"{i + 1}. {step_name}",
+                font=("", 12),
+                text_color="gray"
+            )
+            label.pack(side="left", padx=15, pady=8)
+            self.step_labels.append(label)
+
+        self._update_display()
+
+    def set_step(self, step: int):
+        """Set the current step (0-indexed)."""
+        self.current_step = step
+        self._update_display()
+
+    def _update_display(self):
+        """Update label styles based on current step."""
+        for i, label in enumerate(self.step_labels):
+            if i < self.current_step:
+                # Completed step
+                label.configure(text_color="green")
+            elif i == self.current_step:
+                # Current step
+                label.configure(text_color=("gray10", "gray90"), font=("", 12, "bold"))
+            else:
+                # Future step
+                label.configure(text_color="gray", font=("", 12))
+
+
+class SupertagSelectionFrame(ctk.CTkFrame):
+    """Scrollable frame for selecting supertags to include."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        # Header with select all/none buttons
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(fill="x", padx=10, pady=(10, 5))
+
+        ctk.CTkLabel(
+            header_frame,
+            text="Select Supertags to Convert",
+            font=("", 14, "bold")
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            header_frame,
+            text="Select All",
+            width=80,
+            command=self._select_all
+        ).pack(side="right", padx=5)
+
+        ctk.CTkButton(
+            header_frame,
+            text="Select None",
+            width=80,
+            command=self._select_none
+        ).pack(side="right", padx=5)
+
+        # Scrollable area
+        self.scrollable = ctk.CTkScrollableFrame(self, height=350)
+        self.scrollable.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+
+        self.checkboxes: Dict[str, ctk.CTkCheckBox] = {}
+        self.variables: Dict[str, ctk.BooleanVar] = {}
+
+    def set_supertags(self, supertags: List['SupertagInfo']):
+        """Populate the list with supertags."""
+        # Clear existing
+        for widget in self.scrollable.winfo_children():
+            widget.destroy()
+        self.checkboxes.clear()
+        self.variables.clear()
+
+        # Add supertags
+        for info in supertags:
+            # Determine default selection
+            default_selected = info.special_type not in ('week', 'year', 'field-definition')
+
+            var = ctk.BooleanVar(value=default_selected)
+            self.variables[info.id] = var
+
+            # Build display text
+            display_text = f"#{info.name}"
+            if info.instance_count > 0:
+                display_text += f"  ({info.instance_count})"
+
+            # Add special type indicator
+            if info.special_type == 'day':
+                display_text += "  [Daily Notes]"
+            elif info.special_type == 'week':
+                display_text += "  [Week - skipped by default]"
+            elif info.special_type == 'year':
+                display_text += "  [Year - skipped by default]"
+            elif info.special_type == 'field-definition':
+                display_text += "  [Field Definition - skipped]"
+
+            # Create row frame for checkbox + field info
+            row_frame = ctk.CTkFrame(self.scrollable, fg_color="transparent")
+            row_frame.pack(fill="x", pady=2)
+
+            cb = ctk.CTkCheckBox(
+                row_frame,
+                text=display_text,
+                variable=var,
+                font=("", 12)
+            )
+            cb.pack(side="left", anchor="w")
+
+            # Show field count if any
+            if info.fields:
+                field_types = []
+                for f in info.fields:
+                    if f.field_type == 'options_from_supertag':
+                        field_types.append(f"links to #{f.source_supertag_name}")
+                    elif f.field_type == 'system_done':
+                        field_types.append("done status")
+
+                if field_types:
+                    field_text = f"  [{', '.join(field_types)}]"
+                    ctk.CTkLabel(
+                        row_frame,
+                        text=field_text,
+                        font=("", 11),
+                        text_color="gray"
+                    ).pack(side="left", padx=(5, 0))
+
+            self.checkboxes[info.id] = cb
+
+            # Disable field-definition checkbox
+            if info.special_type == 'field-definition':
+                cb.configure(state="disabled")
+                var.set(False)
+
+    def get_selected_ids(self) -> List[str]:
+        """Return list of selected supertag IDs."""
+        return [tag_id for tag_id, var in self.variables.items() if var.get()]
+
+    def _select_all(self):
+        """Select all supertags except field-definition."""
+        for tag_id, var in self.variables.items():
+            cb = self.checkboxes.get(tag_id)
+            if cb and cb.cget("state") != "disabled":
+                var.set(True)
+
+    def _select_none(self):
+        """Deselect all supertags."""
+        for var in self.variables.values():
+            var.set(False)
+
+
+class GlobalOptionsFrame(ctk.CTkFrame):
+    """Simplified options frame with only the essential options."""
 
     def __init__(self, parent, **kwargs):
         super().__init__(parent, **kwargs)
@@ -92,19 +255,13 @@ class OptionsFrame(ctk.CTkFrame):
 
         # Create checkbox variables
         self.download_images_var = ctk.BooleanVar(value=True)
-        self.skip_readwise_var = ctk.BooleanVar(value=True)
-        self.skip_highlights_var = ctk.BooleanVar(value=True)
         self.skip_week_nodes_var = ctk.BooleanVar(value=True)
         self.skip_year_nodes_var = ctk.BooleanVar(value=True)
-        self.skip_field_definitions_var = ctk.BooleanVar(value=True)
 
         # Create checkboxes
         self._create_checkbox("Download images from Firebase", self.download_images_var)
-        self._create_checkbox("Skip Readwise nodes", self.skip_readwise_var)
-        self._create_checkbox("Skip Highlight nodes", self.skip_highlights_var)
         self._create_checkbox("Skip Week nodes", self.skip_week_nodes_var)
         self._create_checkbox("Skip Year nodes", self.skip_year_nodes_var)
-        self._create_checkbox("Skip Field Definition nodes", self.skip_field_definitions_var)
 
     def _create_checkbox(self, text: str, variable: ctk.BooleanVar):
         """Create and pack a checkbox."""
@@ -116,11 +273,8 @@ class OptionsFrame(ctk.CTkFrame):
         """Return all option values as a dictionary."""
         return {
             "download_images": self.download_images_var.get(),
-            "skip_readwise": self.skip_readwise_var.get(),
-            "skip_highlights": self.skip_highlights_var.get(),
             "skip_week_nodes": self.skip_week_nodes_var.get(),
             "skip_year_nodes": self.skip_year_nodes_var.get(),
-            "skip_field_definitions": self.skip_field_definitions_var.get(),
         }
 
 
@@ -181,8 +335,138 @@ class LogFrame(ctk.CTkFrame):
         self.textbox.configure(state="disabled")
 
 
+class WizardNavigationFrame(ctk.CTkFrame):
+    """Navigation buttons for the wizard (Back, Next, Convert)."""
+
+    def __init__(
+        self,
+        parent,
+        on_back: Callable,
+        on_next: Callable,
+        on_convert: Callable,
+        on_cancel: Callable,
+        **kwargs
+    ):
+        super().__init__(parent, **kwargs)
+
+        self.on_back = on_back
+        self.on_next = on_next
+        self.on_convert = on_convert
+        self.on_cancel = on_cancel
+
+        # Back button
+        self.back_button = ctk.CTkButton(
+            self,
+            text="< Back",
+            width=100,
+            command=on_back
+        )
+        self.back_button.pack(side="left", padx=(15, 10), pady=12)
+
+        # Cancel button (for conversion step)
+        self.cancel_button = ctk.CTkButton(
+            self,
+            text="Cancel",
+            width=100,
+            command=on_cancel,
+            state="disabled"
+        )
+        self.cancel_button.pack(side="left", padx=10, pady=12)
+
+        # Convert button (shown on final step)
+        self.convert_button = ctk.CTkButton(
+            self,
+            text="Convert",
+            width=120,
+            command=on_convert,
+            fg_color="green",
+            hover_color="darkgreen"
+        )
+        self.convert_button.pack(side="right", padx=(10, 15), pady=12)
+
+        # Next button
+        self.next_button = ctk.CTkButton(
+            self,
+            text="Next >",
+            width=100,
+            command=on_next
+        )
+        self.next_button.pack(side="right", padx=10, pady=12)
+
+    def set_step(self, step: int, total_steps: int, is_converting: bool = False):
+        """Update button states based on current step."""
+        # Back button
+        if step == 0 or is_converting:
+            self.back_button.configure(state="disabled")
+        else:
+            self.back_button.configure(state="normal")
+
+        # Next button
+        if step >= total_steps - 1 or is_converting:
+            self.next_button.pack_forget()
+        else:
+            self.next_button.pack(side="right", padx=10, pady=12)
+            self.next_button.configure(state="normal")
+
+        # Convert button
+        if step == total_steps - 1 and not is_converting:
+            self.convert_button.pack(side="right", padx=(10, 15), pady=12)
+            self.convert_button.configure(state="normal")
+        elif is_converting:
+            self.convert_button.pack(side="right", padx=(10, 15), pady=12)
+            self.convert_button.configure(state="disabled")
+        else:
+            self.convert_button.pack_forget()
+
+        # Cancel button
+        if is_converting:
+            self.cancel_button.configure(state="normal")
+        else:
+            self.cancel_button.configure(state="disabled")
+
+
+# Legacy compatibility - keep old OptionsFrame for backward compatibility
+class OptionsFrame(ctk.CTkFrame):
+    """Legacy options frame - replaced by GlobalOptionsFrame in wizard."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        self.header = ctk.CTkLabel(self, text="Options", font=("", 14, "bold"))
+        self.header.pack(anchor="w", padx=15, pady=(12, 8))
+
+        self.download_images_var = ctk.BooleanVar(value=True)
+        self.skip_readwise_var = ctk.BooleanVar(value=True)
+        self.skip_highlights_var = ctk.BooleanVar(value=True)
+        self.skip_week_nodes_var = ctk.BooleanVar(value=True)
+        self.skip_year_nodes_var = ctk.BooleanVar(value=True)
+        self.skip_field_definitions_var = ctk.BooleanVar(value=True)
+
+        self._create_checkbox("Download images from Firebase", self.download_images_var)
+        self._create_checkbox("Skip Readwise nodes", self.skip_readwise_var)
+        self._create_checkbox("Skip Highlight nodes", self.skip_highlights_var)
+        self._create_checkbox("Skip Week nodes", self.skip_week_nodes_var)
+        self._create_checkbox("Skip Year nodes", self.skip_year_nodes_var)
+        self._create_checkbox("Skip Field Definition nodes", self.skip_field_definitions_var)
+
+    def _create_checkbox(self, text: str, variable: ctk.BooleanVar):
+        cb = ctk.CTkCheckBox(self, text=text, variable=variable)
+        cb.pack(anchor="w", padx=25, pady=3)
+        return cb
+
+    def get_options(self) -> dict:
+        return {
+            "download_images": self.download_images_var.get(),
+            "skip_readwise": self.skip_readwise_var.get(),
+            "skip_highlights": self.skip_highlights_var.get(),
+            "skip_week_nodes": self.skip_week_nodes_var.get(),
+            "skip_year_nodes": self.skip_year_nodes_var.get(),
+            "skip_field_definitions": self.skip_field_definitions_var.get(),
+        }
+
+
 class ActionButtonsFrame(ctk.CTkFrame):
-    """A frame containing the Convert and Cancel buttons."""
+    """Legacy action buttons - for backward compatibility."""
 
     def __init__(
         self,
@@ -193,7 +477,6 @@ class ActionButtonsFrame(ctk.CTkFrame):
     ):
         super().__init__(parent, **kwargs)
 
-        # Convert button
         self.convert_button = ctk.CTkButton(
             self,
             text="Convert",
@@ -202,7 +485,6 @@ class ActionButtonsFrame(ctk.CTkFrame):
         )
         self.convert_button.pack(side="left", padx=(15, 10), pady=12)
 
-        # Cancel button
         self.cancel_button = ctk.CTkButton(
             self,
             text="Cancel",
@@ -213,7 +495,6 @@ class ActionButtonsFrame(ctk.CTkFrame):
         self.cancel_button.pack(side="left", padx=10, pady=12)
 
     def set_converting(self, is_converting: bool):
-        """Update button states based on conversion status."""
         if is_converting:
             self.convert_button.configure(state="disabled")
             self.cancel_button.configure(state="normal")

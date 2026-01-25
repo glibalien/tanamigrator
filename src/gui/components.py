@@ -178,7 +178,7 @@ class SupertagSelectionFrame(ctk.CTkFrame):
         self.include_library_nodes_var = ctk.BooleanVar(value=True)
         self.library_cb = ctk.CTkCheckBox(
             self,
-            text="Include Library nodes without supertags if they are referenced by an exported node",
+            text="Include nodes without supertags if they are referenced by an exported node",
             variable=self.include_library_nodes_var,
             font=("", 12)
         )
@@ -605,7 +605,7 @@ class FolderConfigFrame(ctk.CTkFrame):
         # Untagged library nodes folder (initially hidden)
         self.untagged_library_label = ctk.CTkLabel(
             self.bottom_frame,
-            text="Untagged Library folder:",
+            text="Untagged Node folder:",
             width=160,
             anchor="w"
         )

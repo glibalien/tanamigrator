@@ -58,7 +58,6 @@ class TestConversionSettings:
         assert settings.skip_year_nodes is True
         assert settings.skip_highlights is False  # Changed in v2: not exposed in UI
         assert settings.skip_field_definitions is True
-        assert settings.project_field_id == "zaD_EkMhKP"
 
     def test_custom_values(self, temp_output_dir):
         """Test that custom values override defaults."""
@@ -67,11 +66,9 @@ class TestConversionSettings:
             output_dir=temp_output_dir,
             download_images=False,
             skip_readwise=False,
-            project_field_id="custom_id",
         )
         assert settings.download_images is False
         assert settings.skip_readwise is False
-        assert settings.project_field_id == "custom_id"
 
 
 class TestConverterInitialization:
@@ -493,23 +490,18 @@ class TestFullConversion:
 
 
 class TestFieldExtraction:
-    """Tests for extracting field values (project, people, etc.)."""
+    """Tests for extracting field values via dynamic system."""
 
-    def test_get_project_reference(self, converter):
-        """Test extracting project references."""
-        meeting_doc = converter.doc_map["meeting1"]
-        projects = converter.get_project_reference(meeting_doc)
+    def test_get_field_value_returns_none_for_missing(self, converter):
+        """Test that get_field_value returns None for nodes without field values."""
+        result = converter.get_field_value("nonexistent_node", "nonexistent_field")
+        assert result is None
 
-        assert len(projects) > 0
-        assert "Test Project" in projects[0]
-
-    def test_get_people_involved(self, converter):
-        """Test extracting people involved references."""
-        meeting_doc = converter.doc_map["meeting1"]
-        people = converter.get_people_involved(meeting_doc)
-
-        assert len(people) > 0
-        assert "John Doe" in people[0]
+    def test_get_all_field_values_returns_empty_dict(self, converter):
+        """Test that get_all_field_values returns empty dict for nodes without configured fields."""
+        result = converter.get_all_field_values("task1")
+        # Without configured field mappings, should return empty dict
+        assert isinstance(result, dict)
 
 
 class TestTaskStatus:

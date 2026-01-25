@@ -234,6 +234,7 @@ class TanaExportScanner:
                 field_type='system_done'
             ))
             seen_field_ids.add('_done')
+            seen_field_ids.add(self.DONE_FIELD_ID)  # Prevent duplicate if SYS_A77 also found
 
         # Look at supertag's children (should be tuples)
         for child_id in supertag_doc.get('children', []):

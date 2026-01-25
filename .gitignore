@@ -53,3 +53,6 @@ htmlcov/
 
 # Local settings
 .claude/
+
+# Local planning docs
+ADDITIONAL_FRONTMATTER_FIELDS.md

@@ -103,6 +103,69 @@ class TanaToObsidian:
                         'transform': mapping.transform,
                     }
 
+    def _value_has_supertag(self, value_id: str) -> bool:
+        """Check if a value node has any supertag.
+
+        Used to determine if a field value should be formatted as a wikilink.
+        """
+        if value_id.startswith('SYS_'):
+            return False
+
+        doc = self.doc_map.get(value_id)
+        if not doc:
+            return False
+
+        meta_id = doc.get('props', {}).get('_metaNodeId')
+        if not meta_id or meta_id not in self.metanode_tags:
+            return False
+
+        # Check if it has any non-system supertag
+        for tag_id in self.metanode_tags[meta_id]:
+            if tag_id in self.supertags:
+                tag_name = self.supertags[tag_id]
+                if tag_name and not tag_name.startswith('('):
+                    return True
+        return False
+
+    def get_field_values_with_metadata(self, node_id: str, field_id: str) -> list:
+        """Get field values with metadata about each value.
+
+        Returns list of dicts with 'value' and 'has_supertag' keys.
+        Returns empty list if no values.
+        For checkboxes, returns [{'value': True/False, 'has_supertag': False}].
+        """
+        if node_id not in self.node_field_values:
+            return []
+
+        node_fields = self.node_field_values[node_id]
+        if field_id not in node_fields:
+            return []
+
+        value_ids = node_fields[field_id]
+        if not value_ids:
+            return []
+
+        results = []
+        for value_id in value_ids:
+            # Check for checkbox values
+            if value_id == 'SYS_V03':
+                return [{'value': True, 'has_supertag': False}]
+            elif value_id == 'SYS_V04':
+                return [{'value': False, 'has_supertag': False}]
+
+            # Get value from doc
+            value_doc = self.doc_map.get(value_id)
+            if value_doc:
+                value_name = value_doc.get('props', {}).get('name', '')
+                if value_name:
+                    # Clean the value to handle inline references (dates, nodes, etc.)
+                    clean_value = self.clean_node_name(value_name)
+                    if clean_value:
+                        has_supertag = self._value_has_supertag(value_id)
+                        results.append({'value': clean_value, 'has_supertag': has_supertag})
+
+        return results
+
     def get_field_value(self, node_id: str, field_id: str):
         """Get the value(s) for a specific field on a node.
 
@@ -113,47 +176,24 @@ class TanaToObsidian:
 
         Returns: single value or list of values, or None if not set
         """
-        if node_id not in self.node_field_values:
+        values_meta = self.get_field_values_with_metadata(node_id, field_id)
+        if not values_meta:
             return None
 
-        node_fields = self.node_field_values[node_id]
-        if field_id not in node_fields:
-            return None
-
-        value_ids = node_fields[field_id]
-        if not value_ids:
-            return None
-
-        values = []
-        for value_id in value_ids:
-            # Check for checkbox "Yes" value
-            if value_id == 'SYS_V03':
-                return True
-            elif value_id == 'SYS_V04':  # "No" value
-                return False
-
-            # Get value from doc
-            value_doc = self.doc_map.get(value_id)
-            if value_doc:
-                value_name = value_doc.get('props', {}).get('name', '')
-                if value_name:
-                    # Clean the value to handle inline references (dates, nodes, etc.)
-                    clean_value = self.clean_node_name(value_name)
-                    if clean_value:
-                        values.append(clean_value)
-
-        if not values:
-            return None
-        elif len(values) == 1:
-            return values[0]
+        # Extract just the values
+        if len(values_meta) == 1:
+            return values_meta[0]['value']
         else:
-            return values
+            return [m['value'] for m in values_meta]
 
     def get_all_field_values(self, node_id: str) -> dict:
         """Get all configured field values for a node.
 
         Returns dict with frontmatter_name as key and formatted value.
         Only includes fields that have values set.
+
+        Values that have supertags are automatically formatted as wikilinks,
+        regardless of the field's transform setting.
         """
         result = {}
 
@@ -161,28 +201,39 @@ class TanaToObsidian:
             return result
 
         for field_id, mapping_info in self.field_info_map.items():
-            value = self.get_field_value(node_id, field_id)
-            if value is None:
+            values_meta = self.get_field_values_with_metadata(node_id, field_id)
+            if not values_meta:
                 continue
 
             frontmatter_name = mapping_info['frontmatter_name']
             transform = mapping_info['transform']
 
-            # Apply transform
-            if transform == 'wikilink':
-                if isinstance(value, list):
-                    result[frontmatter_name] = [f'[[{v}]]' for v in value]
+            # Check if this is a boolean (checkbox) field
+            if len(values_meta) == 1 and isinstance(values_meta[0]['value'], bool):
+                bool_val = values_meta[0]['value']
+                if transform == 'status':
+                    result[frontmatter_name] = 'done' if bool_val else 'open'
                 else:
-                    result[frontmatter_name] = f'[[{value}]]'
-            elif transform == 'status':
-                # Status transform: convert to done/open based on boolean
-                if isinstance(value, bool):
-                    result[frontmatter_name] = 'done' if value else 'open'
+                    result[frontmatter_name] = bool_val
+                continue
+
+            # Format each value - auto-wikilink if value has a supertag
+            formatted_values = []
+            for meta in values_meta:
+                val = meta['value']
+                has_tag = meta['has_supertag']
+
+                # Apply wikilink if value has supertag OR if transform is wikilink
+                if has_tag or transform == 'wikilink':
+                    formatted_values.append(f'[[{val}]]')
                 else:
-                    result[frontmatter_name] = value
+                    formatted_values.append(val)
+
+            # Return single value or list
+            if len(formatted_values) == 1:
+                result[frontmatter_name] = formatted_values[0]
             else:
-                # No transform
-                result[frontmatter_name] = value
+                result[frontmatter_name] = formatted_values
 
         return result
 

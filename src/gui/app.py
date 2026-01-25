@@ -98,11 +98,11 @@ class TanaToObsidianApp(ctk.CTk):
         # Progress
         self.progress_frame.pack(fill="x", padx=PAD_X, pady=PAD_Y)
 
-        # Log
-        self.log_frame.pack(fill="both", expand=True, padx=PAD_X, pady=PAD_Y)
+        # Action buttons (pack before log so they're always visible)
+        self.action_frame.pack(side="bottom", fill="x", padx=PAD_X, pady=(PAD_Y, PAD_Y + 5))
 
-        # Action buttons
-        self.action_frame.pack(fill="x", padx=PAD_X, pady=(PAD_Y, PAD_Y + 5))
+        # Log (expands to fill remaining space)
+        self.log_frame.pack(fill="both", expand=True, padx=PAD_X, pady=PAD_Y)
 
     def _on_json_selected(self, path: Path):
         """Handle JSON file selection."""

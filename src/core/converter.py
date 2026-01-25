@@ -103,6 +103,24 @@ class TanaToObsidian:
                         'transform': mapping.transform,
                     }
 
+    def _doc_has_any_supertag(self, doc: dict) -> bool:
+        """Check if a document has any supertag (regardless of selection).
+
+        Used to determine if a node should be treated as a tagged entity.
+        Unlike has_supertag(), this checks for ANY supertag, not just selected ones.
+        """
+        meta_id = doc.get('props', {}).get('_metaNodeId')
+        if not meta_id or meta_id not in self.metanode_tags:
+            return False
+
+        # Check if it has any non-system supertag
+        for tag_id in self.metanode_tags[meta_id]:
+            if tag_id in self.supertags:
+                tag_name = self.supertags[tag_id]
+                if tag_name and not tag_name.startswith('('):
+                    return True
+        return False
+
     def _value_has_supertag(self, value_id: str) -> bool:
         """Check if a value node has any supertag.
 
@@ -115,17 +133,7 @@ class TanaToObsidian:
         if not doc:
             return False
 
-        meta_id = doc.get('props', {}).get('_metaNodeId')
-        if not meta_id or meta_id not in self.metanode_tags:
-            return False
-
-        # Check if it has any non-system supertag
-        for tag_id in self.metanode_tags[meta_id]:
-            if tag_id in self.supertags:
-                tag_name = self.supertags[tag_id]
-                if tag_name and not tag_name.startswith('('):
-                    return True
-        return False
+        return self._doc_has_any_supertag(doc)
 
     def get_field_values_with_metadata(self, node_id: str, field_id: str) -> list:
         """Get field values with metadata about each value.
@@ -1078,7 +1086,7 @@ class TanaToObsidian:
         Handles:
         - Booleans -> lowercase true/false
         - Lists -> YAML list format
-        - Strings with special chars -> quoted
+        - Strings with special chars -> quoted (with inner quotes escaped)
         - Numbers -> unquoted
         """
         if isinstance(field_value, bool):
@@ -1089,8 +1097,10 @@ class TanaToObsidian:
             lines = [f'{field_name}:']
             for val in field_value:
                 # Quote strings that contain special characters
-                if isinstance(val, str) and any(c in val for c in ':#{}[]|>&*!'):
-                    lines.append(f'  - "{val}"')
+                if isinstance(val, str) and any(c in val for c in ':#{}[]|>&*!"'):
+                    # Escape inner double quotes and backslashes for valid YAML
+                    escaped_val = val.replace('\\', '\\\\').replace('"', '\\"')
+                    lines.append(f'  - "{escaped_val}"')
                 else:
                     lines.append(f'  - {val}')
             return '\n'.join(lines)
@@ -1099,8 +1109,10 @@ class TanaToObsidian:
         else:
             # String value - quote if it contains special YAML characters
             val_str = str(field_value)
-            if any(c in val_str for c in ':#{}[]|>&*!') or val_str.startswith('"'):
-                return f'{field_name}: "{val_str}"'
+            if any(c in val_str for c in ':#{}[]|>&*!"') or val_str.startswith('"'):
+                # Escape inner double quotes and backslashes for valid YAML
+                escaped_val = val_str.replace('\\', '\\\\').replace('"', '\\"')
+                return f'{field_name}: "{escaped_val}"'
             return f'{field_name}: {val_str}'
 
     def create_merged_frontmatter(self, tags: set, dynamic_fields: dict,
@@ -1726,6 +1738,11 @@ class TanaToObsidian:
 
                     # Skip if should be skipped (trash, system nodes, etc.)
                     if self.should_skip_referenced_node(doc):
+                        continue
+
+                    # Skip if node has any supertag (this option is for nodes WITHOUT supertags)
+                    # Nodes with supertags should be exported via supertag selection, not here
+                    if self._doc_has_any_supertag(doc):
                         continue
 
                     name = doc.get('props', {}).get('name', '')

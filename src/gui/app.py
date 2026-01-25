@@ -345,8 +345,7 @@ class TanaToObsidianApp(ctk.CTk):
             output_dir=self.output_dir,
             supertag_configs=list(self.supertag_configs.values()),
             download_images=options["download_images"],
-            skip_week_nodes=options["skip_week_nodes"],
-            skip_year_nodes=options["skip_year_nodes"],
+            include_library_nodes=options["include_library_nodes"],
         )
 
         # Start conversion in background thread

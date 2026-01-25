@@ -1707,65 +1707,68 @@ class TanaToObsidian:
             single_count, merged_count = self.write_merged_files()
 
             # Phase 5: Create files for referenced nodes that don't have files yet
-            self.report_progress("Referenced Nodes", 0, len(self.referenced_nodes), "Creating files for referenced nodes...")
-            self.check_cancelled()
+            # (only if include_library_nodes is enabled)
             referenced_count = 0
 
-            for node_id in self.referenced_nodes:
+            if self.settings.include_library_nodes:
+                self.report_progress("Referenced Nodes", 0, len(self.referenced_nodes), "Creating files for referenced nodes...")
                 self.check_cancelled()
 
-                # Skip if already has a file
-                if node_id in self.exported_files:
-                    continue
+                for node_id in self.referenced_nodes:
+                    self.check_cancelled()
 
-                # Skip if node doesn't exist
-                if node_id not in self.doc_map:
-                    continue
+                    # Skip if already has a file
+                    if node_id in self.exported_files:
+                        continue
 
-                doc = self.doc_map[node_id]
+                    # Skip if node doesn't exist
+                    if node_id not in self.doc_map:
+                        continue
 
-                # Skip if should be skipped (trash, system nodes, etc.)
-                if self.should_skip_referenced_node(doc):
-                    continue
+                    doc = self.doc_map[node_id]
 
-                name = doc.get('props', {}).get('name', '')
-                clean_name = self.clean_node_name(name)
-                if not clean_name:
-                    continue
+                    # Skip if should be skipped (trash, system nodes, etc.)
+                    if self.should_skip_referenced_node(doc):
+                        continue
 
-                # Create filename
-                filename = self.sanitize_filename(clean_name)
+                    name = doc.get('props', {}).get('name', '')
+                    clean_name = self.clean_node_name(name)
+                    if not clean_name:
+                        continue
 
-                # Track this node -> filename mapping
-                self.exported_files[node_id] = filename
+                    # Create filename
+                    filename = self.sanitize_filename(clean_name)
 
-                # Get any date context
-                node_date = self.find_daily_note_ancestor(doc)
-                if not node_date:
-                    node_date = self.get_node_created_date(doc)
+                    # Track this node -> filename mapping
+                    self.exported_files[node_id] = filename
 
-                # Build content
-                content_parts = []
+                    # Get any date context
+                    node_date = self.find_daily_note_ancestor(doc)
+                    if not node_date:
+                        node_date = self.get_node_created_date(doc)
 
-                # Add frontmatter with tags if any
-                tags = self.get_node_tags(doc)
-                frontmatter = self.create_frontmatter(tags, doc, node_date)
-                if frontmatter:
-                    content_parts.append(frontmatter)
+                    # Build content
+                    content_parts = []
 
-                # Add children content
-                children_content = self.get_inline_content(doc)
-                if children_content:
-                    content_parts.append(children_content)
+                    # Add frontmatter with tags if any
+                    tags = self.get_node_tags(doc)
+                    frontmatter = self.create_frontmatter(tags, doc, node_date)
+                    if frontmatter:
+                        content_parts.append(frontmatter)
 
-                # Write file
-                file_path = self.output_dir / f'{filename}.md'
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(content_parts))
+                    # Add children content
+                    children_content = self.get_inline_content(doc)
+                    if children_content:
+                        content_parts.append(children_content)
 
-                referenced_count += 1
+                    # Write file
+                    file_path = self.output_dir / f'{filename}.md'
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(content_parts))
 
-            self.report_progress("Referenced Nodes", referenced_count, referenced_count, f"Created {referenced_count} files for referenced nodes")
+                    referenced_count += 1
+
+                self.report_progress("Referenced Nodes", referenced_count, referenced_count, f"Created {referenced_count} files for referenced nodes")
 
             # Calculate totals
             total_files_written = len(self.pending_merges) + referenced_count

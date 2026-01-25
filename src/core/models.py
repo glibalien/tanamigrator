@@ -56,13 +56,14 @@ class ConversionSettings:
 
     # Global options (simplified in v2)
     download_images: bool = True
-    skip_week_nodes: bool = True
-    skip_year_nodes: bool = True
+    include_library_nodes: bool = True  # Include referenced nodes without supertags
 
     # Legacy options (kept for backward compatibility but not exposed in UI)
     skip_readwise: bool = False
     skip_highlights: bool = False
     skip_field_definitions: bool = True  # Always true in v2
+    skip_week_nodes: bool = True  # Legacy - now handled via supertag selection
+    skip_year_nodes: bool = True  # Legacy - now handled via supertag selection
 
     # Legacy field IDs (deprecated - now handled via supertag_configs)
     # Kept for backward compatibility with existing converter code during transition

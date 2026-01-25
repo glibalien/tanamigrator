@@ -255,13 +255,11 @@ class GlobalOptionsFrame(ctk.CTkFrame):
 
         # Create checkbox variables
         self.download_images_var = ctk.BooleanVar(value=True)
-        self.skip_week_nodes_var = ctk.BooleanVar(value=True)
-        self.skip_year_nodes_var = ctk.BooleanVar(value=True)
+        self.include_library_nodes_var = ctk.BooleanVar(value=True)
 
         # Create checkboxes
         self._create_checkbox("Download images from Firebase", self.download_images_var)
-        self._create_checkbox("Skip Week nodes", self.skip_week_nodes_var)
-        self._create_checkbox("Skip Year nodes", self.skip_year_nodes_var)
+        self._create_checkbox("Include Library nodes without supertags", self.include_library_nodes_var)
 
     def _create_checkbox(self, text: str, variable: ctk.BooleanVar):
         """Create and pack a checkbox."""
@@ -273,8 +271,7 @@ class GlobalOptionsFrame(ctk.CTkFrame):
         """Return all option values as a dictionary."""
         return {
             "download_images": self.download_images_var.get(),
-            "skip_week_nodes": self.skip_week_nodes_var.get(),
-            "skip_year_nodes": self.skip_year_nodes_var.get(),
+            "include_library_nodes": self.include_library_nodes_var.get(),
         }
 
 

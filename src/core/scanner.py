@@ -76,18 +76,13 @@ class TanaExportScanner:
                                message=f"Analyzing #{tag_name}...")
 
             # Get field definitions for this supertag
+            # Note: Done status is detected via SYS_A77 in _discover_fields,
+            # not by checking if instances have _done (which causes false positives
+            # when a node has multiple supertags like #task and #company)
             fields = self._discover_fields(tag_id)
 
             # Count instances
             instance_count = self._count_instances(tag_id)
-
-            # Check if any instance has done status
-            if self._has_done_instances(tag_id) and not any(f.field_type == 'system_done' for f in fields):
-                fields.insert(0, FieldInfo(
-                    id='_done',
-                    name='Done',
-                    field_type='system_done'
-                ))
 
             # Determine special type
             special_type = self._get_special_type(tag_name)
@@ -303,20 +298,6 @@ class TanaExportScanner:
                         return (gc_id, self.supertags[gc_id])
 
         return (None, None)
-
-    def _has_done_instances(self, supertag_id: str) -> bool:
-        """Check if any instance of this supertag has _done property set."""
-        for doc in self.docs:
-            # Skip if no _done property
-            if not doc.get('props', {}).get('_done'):
-                continue
-
-            # Check if this doc is tagged with this supertag
-            meta_id = doc.get('props', {}).get('_metaNodeId')
-            if meta_id and supertag_id in self.metanode_tags.get(meta_id, set()):
-                return True
-
-        return False
 
     def _count_instances(self, supertag_id: str) -> int:
         """Count how many nodes are tagged with this supertag."""

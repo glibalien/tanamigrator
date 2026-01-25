@@ -17,6 +17,8 @@ class TanaExportScanner:
     # System field IDs for detecting field types
     SOURCE_SUPERTAG_FIELD_ID = 'SYS_A05'  # Indicates "options from supertag"
     DONE_FIELD_ID = 'SYS_A77'  # Done field
+    DONE_CHECKBOX_FIELD_ID = 'SYS_A55'  # "Show done/not done with a checkbox"
+    YES_VALUE_ID = 'SYS_V03'  # "Yes" value
 
     # System/internal supertags to exclude from selection
     EXCLUDED_TAG_NAMES = {
@@ -31,10 +33,12 @@ class TanaExportScanner:
     def __init__(
         self,
         json_path: Path,
-        progress_callback: Optional[Callable[[ConversionProgress], None]] = None
+        progress_callback: Optional[Callable[[ConversionProgress], None]] = None,
+        ignore_trash: bool = True
     ):
         self.json_path = json_path
         self.progress_callback = progress_callback
+        self.ignore_trash = ignore_trash
         self.docs: List[dict] = []
         self.doc_map: Dict[str, dict] = {}
         self.supertags: Dict[str, str] = {}  # id -> name
@@ -156,6 +160,36 @@ class TanaExportScanner:
         if '(base type)' in name_lower:
             return True
 
+        # Exclude trashed supertags if ignore_trash is enabled
+        if self.ignore_trash:
+            supertag_doc = self.doc_map.get(tag_id)
+            if supertag_doc and self._is_in_trash(supertag_doc):
+                return True
+
+        return False
+
+    def _is_in_trash(self, doc: dict, visited: Set[str] = None) -> bool:
+        """Check if a document or any of its ancestors is in the trash."""
+        if visited is None:
+            visited = set()
+
+        doc_id = doc.get('id', '')
+        if doc_id in visited:
+            return False
+        visited.add(doc_id)
+
+        # Check if this doc is in trash (TRASH in ID or owner)
+        if 'TRASH' in doc_id.upper():
+            return True
+
+        owner_id = doc.get('props', {}).get('_ownerId', '')
+        if 'TRASH' in owner_id.upper():
+            return True
+
+        # Check parent
+        if owner_id and owner_id in self.doc_map:
+            return self._is_in_trash(self.doc_map[owner_id], visited)
+
         return False
 
     def _build_metanode_tags(self):
@@ -181,12 +215,25 @@ class TanaExportScanner:
 
         For each field definition, we check its children for "options from supertag"
         config (indicated by SYS_A05 in children).
+
+        Done status is detected via:
+        1. SYS_A77 in field definitions (like #task)
+        2. SYS_A55 + SYS_V03 in metanode (like #project)
         """
         fields = []
         seen_field_ids = set()
         supertag_doc = self.doc_map.get(supertag_id)
         if not supertag_doc:
             return fields
+
+        # Check if this supertag has "done checkbox" enabled via metanode
+        if self._has_done_checkbox_via_metanode(supertag_doc):
+            fields.append(FieldInfo(
+                id='_done',
+                name='Done',
+                field_type='system_done'
+            ))
+            seen_field_ids.add('_done')
 
         # Look at supertag's children (should be tuples)
         for child_id in supertag_doc.get('children', []):
@@ -298,6 +345,33 @@ class TanaExportScanner:
                         return (gc_id, self.supertags[gc_id])
 
         return (None, None)
+
+    def _has_done_checkbox_via_metanode(self, supertag_doc: dict) -> bool:
+        """Check if supertag has "done checkbox" enabled via its metanode.
+
+        This is detected by finding a tuple in the metanode's children that contains
+        both SYS_A55 ("Show done/not done with a checkbox") and SYS_V03 ("Yes").
+        """
+        meta_id = supertag_doc.get('props', {}).get('_metaNodeId')
+        if not meta_id:
+            return False
+
+        metanode = self.doc_map.get(meta_id)
+        if not metanode:
+            return False
+
+        # Look through metanode's children for the done checkbox config
+        for child_id in metanode.get('children', []):
+            child = self.doc_map.get(child_id)
+            if not child:
+                continue
+
+            # Check if this tuple contains both SYS_A55 and SYS_V03
+            child_children = child.get('children', [])
+            if self.DONE_CHECKBOX_FIELD_ID in child_children and self.YES_VALUE_ID in child_children:
+                return True
+
+        return False
 
     def _count_instances(self, supertag_id: str) -> int:
         """Count how many nodes are tagged with this supertag."""

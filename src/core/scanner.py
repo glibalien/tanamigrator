@@ -15,8 +15,18 @@ class TanaExportScanner:
     """Scans Tana export to discover supertags and field definitions."""
 
     # System field IDs for detecting field types
-    SOURCE_SUPERTAG_CONFIG_ID = 'SYS_A06'  # Tuple _sourceId for "options from supertag"
-    SOURCE_SUPERTAG_FIELD_ID = 'SYS_A05'   # Child ID in the config tuple
+    SOURCE_SUPERTAG_FIELD_ID = 'SYS_A05'  # Indicates "options from supertag"
+    DONE_FIELD_ID = 'SYS_A77'  # Done field
+
+    # System/internal supertags to exclude from selection
+    EXCLUDED_TAG_NAMES = {
+        'meta information',
+        'row defaults',
+        'tagr app',
+        'supertag',
+        'field-definition',
+        'field definition',
+    }
 
     def __init__(
         self,
@@ -53,8 +63,15 @@ class TanaExportScanner:
         self.report_progress("Scanning", message="Analyzing fields...")
         supertag_infos = []
 
-        total = len(self.supertags)
-        for idx, (tag_id, tag_name) in enumerate(self.supertags.items()):
+        # Filter out excluded supertags
+        filtered_supertags = {
+            tag_id: tag_name
+            for tag_id, tag_name in self.supertags.items()
+            if not self._should_exclude_supertag(tag_id, tag_name)
+        }
+
+        total = len(filtered_supertags)
+        for idx, (tag_id, tag_name) in enumerate(filtered_supertags.items()):
             self.report_progress("Scanning", current=idx + 1, total=total,
                                message=f"Analyzing #{tag_name}...")
 
@@ -63,6 +80,14 @@ class TanaExportScanner:
 
             # Count instances
             instance_count = self._count_instances(tag_id)
+
+            # Check if any instance has done status
+            if self._has_done_instances(tag_id) and not any(f.field_type == 'system_done' for f in fields):
+                fields.insert(0, FieldInfo(
+                    id='_done',
+                    name='Done',
+                    field_type='system_done'
+                ))
 
             # Determine special type
             special_type = self._get_special_type(tag_name)
@@ -121,6 +146,23 @@ class TanaExportScanner:
                 if tag_name:  # Only include tags with names
                     self.supertags[doc['id']] = tag_name
 
+    def _should_exclude_supertag(self, tag_id: str, tag_name: str) -> bool:
+        """Check if a supertag should be excluded from the selection list."""
+        # Exclude system supertags
+        if tag_id.startswith('SYS_'):
+            return True
+
+        # Exclude by name
+        name_lower = tag_name.lower()
+        if name_lower in self.EXCLUDED_TAG_NAMES:
+            return True
+
+        # Exclude "(base type)" supertags
+        if '(base type)' in name_lower:
+            return True
+
+        return False
+
     def _build_metanode_tags(self):
         """Build mapping of metanode -> supertag IDs via tuples."""
         for doc in self.docs:
@@ -137,72 +179,85 @@ class TanaExportScanner:
     def _discover_fields(self, supertag_id: str) -> List[FieldInfo]:
         """Find all fields defined for a supertag.
 
-        Fields are discovered by:
-        1. Looking at the supertag's children (tuple nodes)
-        2. Each tuple contains field definition references
-        3. Detecting "options from supertag" via SYS_A06 config
+        Fields are discovered by looking at the supertag's tuple children.
+        Each tuple typically contains:
+        - A field definition node (owned by FjHKomuskX_SCHEMA or system)
+        - Configuration/default value nodes
+
+        For each field definition, we check its children for "options from supertag"
+        config (indicated by SYS_A05 in children).
         """
         fields = []
+        seen_field_ids = set()
         supertag_doc = self.doc_map.get(supertag_id)
         if not supertag_doc:
             return fields
 
-        # Check if this supertag has the "done" checkbox enabled
-        # This is indicated by a tuple with SYS_T54 (Show done/not done with a checkbox)
-        has_done_field = self._has_done_checkbox(supertag_id)
-        if has_done_field:
-            fields.append(FieldInfo(
-                id='_done',
-                name='Done',
-                field_type='system_done'
-            ))
-
-        # Look at children for field tuples
+        # Look at supertag's children (should be tuples)
         for child_id in supertag_doc.get('children', []):
             child = self.doc_map.get(child_id)
             if not child:
                 continue
 
             child_props = child.get('props', {})
+
+            # Only process tuples
             if child_props.get('_docType') != 'tuple':
                 continue
 
-            # Find field definition in tuple children
+            # Look at tuple's children to find field definition
             tuple_children = child.get('children', [])
-            field_def = self._find_field_definition(tuple_children)
+            field_def = self._find_field_definition_in_tuple(tuple_children)
 
-            if field_def:
-                field_id = field_def['id']
-                field_name = field_def.get('props', {}).get('name', '')
+            if not field_def:
+                continue
 
-                if not field_name:
-                    continue
+            field_id = field_def['id']
+            field_name = field_def.get('props', {}).get('name', '')
 
-                # Check if this is an "options from supertag" field
-                source_tag_id, source_tag_name = self._detect_options_from_supertag(field_def)
+            if not field_name or field_id in seen_field_ids:
+                continue
 
-                if source_tag_id:
-                    fields.append(FieldInfo(
-                        id=field_id,
-                        name=field_name,
-                        field_type='options_from_supertag',
-                        source_supertag_id=source_tag_id,
-                        source_supertag_name=source_tag_name
-                    ))
-                else:
-                    fields.append(FieldInfo(
-                        id=field_id,
-                        name=field_name,
-                        field_type='plain'
-                    ))
+            seen_field_ids.add(field_id)
+
+            # Check if this is a "Done" system field
+            if field_id == self.DONE_FIELD_ID:
+                fields.append(FieldInfo(
+                    id='_done',
+                    name='Done',
+                    field_type='system_done'
+                ))
+                continue
+
+            # Check if this is an "options from supertag" field
+            source_tag_id, source_tag_name = self._detect_options_from_supertag(field_def)
+
+            if source_tag_id:
+                fields.append(FieldInfo(
+                    id=field_id,
+                    name=field_name,
+                    field_type='options_from_supertag',
+                    source_supertag_id=source_tag_id,
+                    source_supertag_name=source_tag_name
+                ))
+            else:
+                fields.append(FieldInfo(
+                    id=field_id,
+                    name=field_name,
+                    field_type='plain'
+                ))
 
         return fields
 
-    def _find_field_definition(self, tuple_children: List[str]) -> Optional[dict]:
+    def _find_field_definition_in_tuple(self, tuple_children: List[str]) -> Optional[dict]:
         """Find the field definition node among tuple children.
 
-        Field definitions are owned by the SCHEMA node (FjHKomuskX_SCHEMA)
-        and have a name property.
+        Field definitions are typically:
+        - Owned by FjHKomuskX_SCHEMA (shared fields)
+        - Owned by the tuple itself (inline fields)
+        - System fields (SYS_*)
+
+        We look for nodes with a 'name' property that aren't just config values.
         """
         for child_id in tuple_children:
             child = self.doc_map.get(child_id)
@@ -210,8 +265,20 @@ class TanaExportScanner:
                 continue
 
             props = child.get('props', {})
-            # Field definitions are owned by SCHEMA and have names
-            if props.get('_ownerId') == 'FjHKomuskX_SCHEMA' and props.get('name'):
+            name = props.get('name', '')
+            owner = props.get('_ownerId', '')
+
+            # Skip nodes without names
+            if not name:
+                continue
+
+            # Field definitions are owned by SCHEMA or are system fields
+            if owner == 'FjHKomuskX_SCHEMA' or child_id.startswith('SYS_'):
+                return child
+
+            # Also check if it's a field definition by having its own children
+            # (field defs have config children, values typically don't)
+            if child.get('children'):
                 return child
 
         return None
@@ -219,52 +286,35 @@ class TanaExportScanner:
     def _detect_options_from_supertag(self, field_doc: dict) -> tuple:
         """Check if field is 'options from supertag' and return (source_tag_id, source_tag_name).
 
-        Detection: Field has a child tuple with _sourceId == SYS_A06,
-        and that tuple's children include a supertag ID.
+        Detection: Field has a child tuple where one of the children is SYS_A05
+        (Source supertag field). The other child of that tuple is the source supertag ID.
         """
         for child_id in field_doc.get('children', []):
             child = self.doc_map.get(child_id)
             if not child:
                 continue
 
-            props = child.get('props', {})
-            # Look for source supertag config tuple
-            if props.get('_sourceId') == self.SOURCE_SUPERTAG_CONFIG_ID:
-                # Find the source supertag in children
-                for gc_id in child.get('children', []):
+            # Check if this is a tuple with SYS_A05
+            child_children = child.get('children', [])
+            if self.SOURCE_SUPERTAG_FIELD_ID in child_children:
+                # Find the source supertag (the other child that's a supertag)
+                for gc_id in child_children:
                     if gc_id != self.SOURCE_SUPERTAG_FIELD_ID and gc_id in self.supertags:
                         return (gc_id, self.supertags[gc_id])
 
         return (None, None)
 
-    def _has_done_checkbox(self, supertag_id: str) -> bool:
-        """Check if supertag has the 'done/not done checkbox' enabled.
+    def _has_done_instances(self, supertag_id: str) -> bool:
+        """Check if any instance of this supertag has _done property set."""
+        for doc in self.docs:
+            # Skip if no _done property
+            if not doc.get('props', {}).get('_done'):
+                continue
 
-        This is indicated by inheriting from a tag with task-like behavior,
-        or by checking the node's metanode for task tag presence.
-
-        For simplicity, we check if the supertag is named 'task' or
-        if it's commonly a task-like supertag.
-        """
-        tag_name = self.supertags.get(supertag_id, '').lower()
-
-        # Common task-like supertags that have done status
-        task_like_names = {'task', 'todo', 'action', 'action item'}
-
-        if tag_name in task_like_names:
-            return True
-
-        # Check supertag's metanode for task inheritance
-        supertag_doc = self.doc_map.get(supertag_id)
-        if supertag_doc:
-            meta_id = supertag_doc.get('props', {}).get('_metaNodeId')
-            if meta_id:
-                # Check if any parent tags are task-like
-                parent_tags = self.metanode_tags.get(meta_id, set())
-                for parent_id in parent_tags:
-                    parent_name = self.supertags.get(parent_id, '').lower()
-                    if parent_name in task_like_names:
-                        return True
+            # Check if this doc is tagged with this supertag
+            meta_id = doc.get('props', {}).get('_metaNodeId')
+            if meta_id and supertag_id in self.metanode_tags.get(meta_id, set()):
+                return True
 
         return False
 

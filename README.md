@@ -50,13 +50,13 @@ python -m src.main
 4. **Step 2 - Select Supertags**:
    - Review discovered supertags and their instance counts
    - Check/uncheck supertags to include in conversion
-   - Optionally include referenced Library nodes without supertags
+   - Optionally include referenced nodes without supertags
    - Field mappings are auto-configured based on field types
 5. **Step 3 - Configure and Convert**:
    - Choose output directory
    - **Configure output folders** for each supertag (e.g., Daily Notes, Tasks, Projects)
    - Set attachments folder for images
-   - Set folder for untagged Library nodes (if enabled)
+   - Set folder for untagged nodes (if enabled)
    - Configure options (download images)
    - Click Convert and watch the progress
 6. **Open in Obsidian**: Point Obsidian to your output directory
@@ -82,7 +82,7 @@ In Step 3, you can specify a subfolder for each selected supertag:
 - **#task** → "Tasks" (suggested default)
 - **#project** → "Projects" (or any custom folder)
 - **Attachments** → Where images are saved
-- **Untagged Library** → Where referenced nodes without supertags are saved
+- **Untagged Nodes** → Where referenced nodes without supertags are saved
 
 Leave a folder blank to save files in the root output directory.
 
@@ -100,9 +100,9 @@ Tagged nodes include frontmatter with:
   - Options fields → selected option value
   - Text, URL, date, number fields → plain values
 
-### Library Nodes
+### Untagged Nodes
 
-When "Include Library nodes without supertags if they are referenced by an exported node" is enabled:
+When "Include nodes without supertags if they are referenced by an exported node" is enabled:
 - Referenced nodes without supertags get their own markdown files
 - Nodes WITH supertags are only exported if that supertag is selected
 - Wikilinks to unselected supertag nodes remain as links (but no file is created)

@@ -520,46 +520,6 @@ class WizardNavigationFrame(ctk.CTkFrame):
             self.cancel_button.configure(state="disabled")
 
 
-# Legacy compatibility - keep old OptionsFrame for backward compatibility
-class OptionsFrame(ctk.CTkFrame):
-    """Legacy options frame - replaced by GlobalOptionsFrame in wizard."""
-
-    def __init__(self, parent, **kwargs):
-        super().__init__(parent, **kwargs)
-
-        self.header = ctk.CTkLabel(self, text="Options", font=("", 14, "bold"))
-        self.header.pack(anchor="w", padx=15, pady=(12, 8))
-
-        self.download_images_var = ctk.BooleanVar(value=True)
-        self.skip_readwise_var = ctk.BooleanVar(value=True)
-        self.skip_highlights_var = ctk.BooleanVar(value=True)
-        self.skip_week_nodes_var = ctk.BooleanVar(value=True)
-        self.skip_year_nodes_var = ctk.BooleanVar(value=True)
-        self.skip_field_definitions_var = ctk.BooleanVar(value=True)
-
-        self._create_checkbox("Download images from Firebase", self.download_images_var)
-        self._create_checkbox("Skip Readwise nodes", self.skip_readwise_var)
-        self._create_checkbox("Skip Highlight nodes", self.skip_highlights_var)
-        self._create_checkbox("Skip Week nodes", self.skip_week_nodes_var)
-        self._create_checkbox("Skip Year nodes", self.skip_year_nodes_var)
-        self._create_checkbox("Skip Field Definition nodes", self.skip_field_definitions_var)
-
-    def _create_checkbox(self, text: str, variable: ctk.BooleanVar):
-        cb = ctk.CTkCheckBox(self, text=text, variable=variable)
-        cb.pack(anchor="w", padx=25, pady=3)
-        return cb
-
-    def get_options(self) -> dict:
-        return {
-            "download_images": self.download_images_var.get(),
-            "skip_readwise": self.skip_readwise_var.get(),
-            "skip_highlights": self.skip_highlights_var.get(),
-            "skip_week_nodes": self.skip_week_nodes_var.get(),
-            "skip_year_nodes": self.skip_year_nodes_var.get(),
-            "skip_field_definitions": self.skip_field_definitions_var.get(),
-        }
-
-
 class ActionButtonsFrame(ctk.CTkFrame):
     """Legacy action buttons - for backward compatibility."""
 

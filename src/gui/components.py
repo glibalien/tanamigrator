@@ -539,32 +539,31 @@ class FolderConfigFrame(ctk.CTkFrame):
         self.supertag_names: Dict[str, str] = {}
 
         # Bottom frame for attachments and untagged library folders
-        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
-        bottom_frame.pack(fill="x", padx=10, pady=(5, 10))
-        bottom_frame.grid_columnconfigure(1, weight=1)
+        self.bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.bottom_frame.pack(fill="x", padx=10, pady=(5, 10))
+        self.bottom_frame.grid_columnconfigure(1, weight=1)
 
         # Attachments folder
         ctk.CTkLabel(
-            bottom_frame,
+            self.bottom_frame,
             text="Attachments folder:",
             width=160,
             anchor="w"
         ).grid(row=0, column=0, padx=(5, 10), pady=3, sticky="w")
 
-        self.attachments_entry = ctk.CTkEntry(bottom_frame, width=200)
+        self.attachments_entry = ctk.CTkEntry(self.bottom_frame, width=200)
         self.attachments_entry.grid(row=0, column=1, pady=3, sticky="ew", padx=(0, 5))
         self.attachments_entry.insert(0, "Attachments")
 
-        # Untagged library nodes folder
-        ctk.CTkLabel(
-            bottom_frame,
+        # Untagged library nodes folder (initially hidden)
+        self.untagged_library_label = ctk.CTkLabel(
+            self.bottom_frame,
             text="Untagged Library folder:",
             width=160,
             anchor="w"
-        ).grid(row=1, column=0, padx=(5, 10), pady=3, sticky="w")
+        )
 
-        self.untagged_library_entry = ctk.CTkEntry(bottom_frame, width=200)
-        self.untagged_library_entry.grid(row=1, column=1, pady=3, sticky="ew", padx=(0, 5))
+        self.untagged_library_entry = ctk.CTkEntry(self.bottom_frame, width=200)
 
     def set_supertags(self, supertag_configs: List['SupertagConfig']):
         """Populate the folder configuration with selected supertags."""
@@ -617,3 +616,12 @@ class FolderConfigFrame(ctk.CTkFrame):
     def get_untagged_library_folder(self) -> str:
         """Return the untagged library nodes folder name."""
         return self.untagged_library_entry.get().strip()
+
+    def set_include_library_nodes(self, include: bool):
+        """Show or hide the untagged library folder field based on setting."""
+        if include:
+            self.untagged_library_label.grid(row=1, column=0, padx=(5, 10), pady=3, sticky="w")
+            self.untagged_library_entry.grid(row=1, column=1, pady=3, sticky="ew", padx=(0, 5))
+        else:
+            self.untagged_library_label.grid_forget()
+            self.untagged_library_entry.grid_forget()

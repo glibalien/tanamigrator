@@ -1719,10 +1719,13 @@ class TanaToObsidian:
             referenced_count = 0
 
             if self.settings.include_library_nodes:
-                self.report_progress("Referenced Nodes", 0, len(self.referenced_nodes), "Creating files for referenced nodes...")
+                # Copy the set to avoid "Set changed size during iteration" error
+                # (convert_references adds to referenced_nodes when processing content)
+                referenced_nodes_snapshot = list(self.referenced_nodes)
+                self.report_progress("Referenced Nodes", 0, len(referenced_nodes_snapshot), "Creating files for referenced nodes...")
                 self.check_cancelled()
 
-                for node_id in self.referenced_nodes:
+                for node_id in referenced_nodes_snapshot:
                     self.check_cancelled()
 
                     # Skip if already has a file

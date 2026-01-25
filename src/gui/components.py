@@ -529,8 +529,8 @@ class FolderConfigFrame(ctk.CTkFrame):
         ).pack(anchor="w", padx=15, pady=(0, 8))
 
         # Scrollable area for supertag folders
-        self.scrollable = ctk.CTkScrollableFrame(self, height=150)
-        self.scrollable.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.scrollable = ctk.CTkScrollableFrame(self, height=120)
+        self.scrollable.pack(fill="both", expand=True, padx=10, pady=(0, 5))
 
         # Configure grid columns for scrollable
         self.scrollable.grid_columnconfigure(1, weight=1)
@@ -538,21 +538,33 @@ class FolderConfigFrame(ctk.CTkFrame):
         self.folder_entries: Dict[str, ctk.CTkEntry] = {}
         self.supertag_names: Dict[str, str] = {}
 
-        # Attachments folder at bottom
-        attachments_frame = ctk.CTkFrame(self, fg_color="transparent")
-        attachments_frame.pack(fill="x", padx=10, pady=(5, 12))
-        attachments_frame.grid_columnconfigure(1, weight=1)
+        # Bottom frame for attachments and untagged library folders
+        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_frame.pack(fill="x", padx=10, pady=(5, 10))
+        bottom_frame.grid_columnconfigure(1, weight=1)
 
+        # Attachments folder
         ctk.CTkLabel(
-            attachments_frame,
+            bottom_frame,
             text="Attachments folder:",
-            width=140,
+            width=160,
             anchor="w"
-        ).grid(row=0, column=0, padx=(5, 10), sticky="w")
+        ).grid(row=0, column=0, padx=(5, 10), pady=3, sticky="w")
 
-        self.attachments_entry = ctk.CTkEntry(attachments_frame, width=200)
-        self.attachments_entry.grid(row=0, column=1, sticky="ew", padx=(0, 5))
+        self.attachments_entry = ctk.CTkEntry(bottom_frame, width=200)
+        self.attachments_entry.grid(row=0, column=1, pady=3, sticky="ew", padx=(0, 5))
         self.attachments_entry.insert(0, "Attachments")
+
+        # Untagged library nodes folder
+        ctk.CTkLabel(
+            bottom_frame,
+            text="Untagged Library folder:",
+            width=160,
+            anchor="w"
+        ).grid(row=1, column=0, padx=(5, 10), pady=3, sticky="w")
+
+        self.untagged_library_entry = ctk.CTkEntry(bottom_frame, width=200)
+        self.untagged_library_entry.grid(row=1, column=1, pady=3, sticky="ew", padx=(0, 5))
 
     def set_supertags(self, supertag_configs: List['SupertagConfig']):
         """Populate the folder configuration with selected supertags."""
@@ -601,3 +613,7 @@ class FolderConfigFrame(ctk.CTkFrame):
     def get_attachments_folder(self) -> str:
         """Return the attachments folder name."""
         return self.attachments_entry.get().strip() or "Attachments"
+
+    def get_untagged_library_folder(self) -> str:
+        """Return the untagged library nodes folder name."""
+        return self.untagged_library_entry.get().strip()

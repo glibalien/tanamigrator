@@ -1792,8 +1792,15 @@ class TanaToObsidian:
                     if children_content:
                         content_parts.append(children_content)
 
+                    # Determine output folder for untagged library nodes
+                    if self.settings.untagged_library_folder:
+                        output_folder = self.output_dir / self.settings.untagged_library_folder
+                        output_folder.mkdir(parents=True, exist_ok=True)
+                    else:
+                        output_folder = self.output_dir
+
                     # Write file
-                    file_path = self.output_dir / f'{filename}.md'
+                    file_path = output_folder / f'{filename}.md'
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write('\n'.join(content_parts))
 

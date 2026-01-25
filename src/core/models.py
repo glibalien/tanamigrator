@@ -45,6 +45,7 @@ class SupertagConfig:
     supertag_name: str
     include: bool = True
     field_mappings: List[FieldMapping] = field(default_factory=list)
+    output_folder: str = ""  # Subfolder for this supertag's output (empty = root)
 
 
 @dataclass
@@ -59,6 +60,7 @@ class ConversionSettings:
     # Global options (simplified in v2)
     download_images: bool = True
     include_library_nodes: bool = True  # Include referenced nodes without supertags
+    attachments_folder: str = "Attachments"  # Subfolder for images/attachments
 
     # Legacy options (kept for backward compatibility but not exposed in UI)
     skip_readwise: bool = False

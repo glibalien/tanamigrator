@@ -61,6 +61,7 @@ class ConversionSettings:
     download_images: bool = True
     include_library_nodes: bool = True  # Include referenced nodes without supertags
     attachments_folder: str = "Attachments"  # Subfolder for images/attachments
+    untagged_library_folder: str = ""  # Subfolder for untagged library nodes (empty = root)
 
     # Legacy options (kept for backward compatibility but not exposed in UI)
     skip_readwise: bool = False

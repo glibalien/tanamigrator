@@ -375,6 +375,7 @@ class TanaToObsidianApp(ctk.CTk):
             download_images=options["download_images"],
             include_library_nodes=self.include_library_nodes,
             attachments_folder=self.folder_config.get_attachments_folder(),
+            untagged_library_folder=self.folder_config.get_untagged_library_folder(),
         )
 
         # Start conversion in background thread

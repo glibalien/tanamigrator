@@ -167,16 +167,20 @@ class TanaToObsidianApp(ctk.CTk):
 
     def _create_step3_content(self):
         """Create content for Step 3: Options and Conversion."""
+        # Make the step content scrollable
+        self.step3_scrollable = ctk.CTkScrollableFrame(self.step3_frame)
+        self.step3_scrollable.pack(fill="both", expand=True)
+
         # Title
         ctk.CTkLabel(
-            self.step3_frame,
+            self.step3_scrollable,
             text="Configure and Convert",
             font=("", 18, "bold")
         ).pack(anchor="w", padx=20, pady=(20, 10))
 
         # Output directory picker
         self.output_picker = FilePickerFrame(
-            self.step3_frame,
+            self.step3_scrollable,
             label_text="Output Directory:",
             is_directory=True,
             on_change=self._on_output_selected
@@ -184,19 +188,19 @@ class TanaToObsidianApp(ctk.CTk):
         self.output_picker.pack(fill="x", padx=10, pady=10)
 
         # Folder configuration for supertags
-        self.folder_config = FolderConfigFrame(self.step3_frame)
+        self.folder_config = FolderConfigFrame(self.step3_scrollable)
         self.folder_config.pack(fill="x", padx=10, pady=10)
 
         # Options
-        self.options_frame = GlobalOptionsFrame(self.step3_frame)
+        self.options_frame = GlobalOptionsFrame(self.step3_scrollable)
         self.options_frame.pack(fill="x", padx=10, pady=5)
 
         # Progress
-        self.progress_frame = ProgressFrame(self.step3_frame)
+        self.progress_frame = ProgressFrame(self.step3_scrollable)
         self.progress_frame.pack(fill="x", padx=10, pady=5)
 
         # Log
-        self.log_frame = LogFrame(self.step3_frame, height=120)
+        self.log_frame = LogFrame(self.step3_scrollable, height=120)
         self.log_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
     def _setup_layout(self):
@@ -295,6 +299,9 @@ class TanaToObsidianApp(ctk.CTk):
 
         # Populate folder configuration on step 3
         self.folder_config.set_supertags(list(self.supertag_configs.values()))
+
+        # Show/hide untagged library folder field based on include_library_nodes setting
+        self.folder_config.set_include_library_nodes(self.include_library_nodes)
 
         return True
 

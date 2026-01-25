@@ -53,11 +53,9 @@ class TestConversionSettings:
             output_dir=temp_output_dir,
         )
         assert settings.download_images is True
-        assert settings.skip_readwise is False  # Changed in v2: not exposed in UI
-        assert settings.skip_week_nodes is True
-        assert settings.skip_year_nodes is True
-        assert settings.skip_highlights is False  # Changed in v2: not exposed in UI
-        assert settings.skip_field_definitions is True
+        assert settings.include_library_nodes is True
+        assert settings.attachments_folder == "Attachments"
+        assert settings.untagged_library_folder == ""
 
     def test_custom_values(self, temp_output_dir):
         """Test that custom values override defaults."""
@@ -65,10 +63,10 @@ class TestConversionSettings:
             json_path=Path("/test/input.json"),
             output_dir=temp_output_dir,
             download_images=False,
-            skip_readwise=False,
+            include_library_nodes=False,
         )
         assert settings.download_images is False
-        assert settings.skip_readwise is False
+        assert settings.include_library_nodes is False
 
 
 class TestConverterInitialization:

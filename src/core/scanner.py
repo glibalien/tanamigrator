@@ -450,10 +450,17 @@ class TanaExportScanner:
         return False
 
     def _count_instances(self, supertag_id: str) -> int:
-        """Count how many nodes are tagged with this supertag."""
+        """Count how many nodes are tagged with this supertag.
+
+        When ignore_trash is True, excludes nodes that are in the trash.
+        """
         count = 0
-        for metanode_id, tag_ids in self.metanode_tags.items():
-            if supertag_id in tag_ids:
+        for doc in self.docs:
+            meta_id = doc.get('props', {}).get('_metaNodeId')
+            if meta_id and supertag_id in self.metanode_tags.get(meta_id, set()):
+                # Check if node is in trash when ignore_trash is enabled
+                if self.ignore_trash and self._is_in_trash(doc):
+                    continue
                 count += 1
         return count
 

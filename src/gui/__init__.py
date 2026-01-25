@@ -1,7 +1,6 @@
 from .app import TanaToObsidianApp
 from .components import (
     FilePickerFrame,
-    OptionsFrame,
     ProgressFrame,
     LogFrame,
     ActionButtonsFrame,
@@ -15,7 +14,6 @@ from .styles import (
 __all__ = [
     'TanaToObsidianApp',
     'FilePickerFrame',
-    'OptionsFrame',
     'ProgressFrame',
     'LogFrame',
     'ActionButtonsFrame',

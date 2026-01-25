@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Callable, Optional
 from urllib.parse import unquote, urlparse
 
-from .models import ConversionSettings, ConversionProgress, ConversionResult
+from .models import ConversionSettings, ConversionProgress, ConversionResult, FieldInfo
 from .exceptions import ConversionCancelled, FileAccessError
 
 
@@ -39,13 +39,6 @@ class TanaToObsidian:
         # Initialize from settings
         self.json_path = settings.json_path
         self.output_dir = Path(settings.output_dir)
-
-        # Field IDs from settings
-        self.project_field_id = settings.project_field_id
-        self.people_involved_field_id = settings.people_involved_field_id
-        self.company_field_id = settings.company_field_id
-        self.cookbook_field_id = settings.cookbook_field_id
-        self.url_field_id = settings.url_field_id
 
         # Internal state
         self.docs = []
@@ -72,26 +65,203 @@ class TanaToObsidian:
         self.pending_merges = {}  # base_filename -> list of (date, doc, folder)
 
         # Image handling
-        self.attachments_dir = self.output_dir / 'Attachments'
+        self.attachments_dir = self.output_dir / settings.attachments_folder
         self.downloaded_images = {}  # url -> local filename
         self.image_download_errors = []  # track failed downloads
         self.image_urls = {}  # node_id -> firebase_url
         self.image_metadata_urls = {}  # node_id -> firebase_url
 
-        # Selected supertags filter (from wizard selection)
+        # Selected supertags filter and folder mappings (from wizard selection)
         self.selected_supertag_ids = set()
+        self.supertag_folders = {}  # supertag_id -> folder path (relative to output_dir)
         if settings.supertag_configs:
-            self.selected_supertag_ids = {
-                config.supertag_id for config in settings.supertag_configs
-                if config.include
-            }
+            for config in settings.supertag_configs:
+                if config.include:
+                    self.selected_supertag_ids.add(config.supertag_id)
+                    # Store folder path (empty string means root)
+                    self.supertag_folders[config.supertag_id] = config.output_folder
 
-        # Indices for field values (populated via tuples)
-        self.meeting_projects = {}  # meeting_id -> list of project node IDs
-        self.meeting_people = {}  # meeting_id -> list of person node IDs
-        self.person_companies = {}  # person_id -> list of company node IDs
-        self.recipe_cookbooks = {}  # recipe_id -> list of cookbook node IDs
-        self.node_urls = {}  # node_id -> URL string
+        # General field value index for dynamic frontmatter
+        # node_id -> {field_id: [value_node_ids]}
+        self.node_field_values = {}
+
+        # Build field_id -> field_info lookup from supertag_configs
+        self.field_info_map = {}  # field_id -> FieldInfo (from supertag_configs)
+        self._build_field_info_map()
+
+    def _build_field_info_map(self):
+        """Build a lookup from field_id to FieldInfo from supertag_configs."""
+        for config in self.settings.supertag_configs:
+            if not config.include:
+                continue
+            for mapping in config.field_mappings:
+                if mapping.include:
+                    # We need to find the FieldInfo - it's not directly available in FieldMapping
+                    # Store mapping info for now, we'll enhance this when we have scanner data
+                    self.field_info_map[mapping.field_id] = {
+                        'field_id': mapping.field_id,
+                        'field_name': mapping.field_name,
+                        'frontmatter_name': mapping.frontmatter_name,
+                        'transform': mapping.transform,
+                    }
+
+    def _get_node_output_folder(self, doc: dict) -> Path:
+        """Get the output folder for a node based on its supertags.
+
+        Returns the folder path (relative to output_dir) based on configured supertag folders.
+        If the node has multiple supertags with folders, uses the first one found.
+        If no folder is configured, returns the root output_dir.
+        """
+        meta_id = doc.get('props', {}).get('_metaNodeId')
+        if meta_id and meta_id in self.metanode_tags:
+            for tag_id in self.metanode_tags[meta_id]:
+                if tag_id in self.supertag_folders:
+                    folder_name = self.supertag_folders[tag_id]
+                    if folder_name:
+                        return self.output_dir / folder_name
+        return self.output_dir
+
+    def _doc_has_any_supertag(self, doc: dict) -> bool:
+        """Check if a document has any supertag (regardless of selection).
+
+        Used to determine if a node should be treated as a tagged entity.
+        Unlike has_supertag(), this checks for ANY supertag, not just selected ones.
+        """
+        meta_id = doc.get('props', {}).get('_metaNodeId')
+        if not meta_id or meta_id not in self.metanode_tags:
+            return False
+
+        # Check if it has any non-system supertag
+        for tag_id in self.metanode_tags[meta_id]:
+            if tag_id in self.supertags:
+                tag_name = self.supertags[tag_id]
+                if tag_name and not tag_name.startswith('('):
+                    return True
+        return False
+
+    def _value_has_supertag(self, value_id: str) -> bool:
+        """Check if a value node has any supertag.
+
+        Used to determine if a field value should be formatted as a wikilink.
+        """
+        if value_id.startswith('SYS_'):
+            return False
+
+        doc = self.doc_map.get(value_id)
+        if not doc:
+            return False
+
+        return self._doc_has_any_supertag(doc)
+
+    def get_field_values_with_metadata(self, node_id: str, field_id: str) -> list:
+        """Get field values with metadata about each value.
+
+        Returns list of dicts with 'value' and 'has_supertag' keys.
+        Returns empty list if no values.
+        For checkboxes, returns [{'value': True/False, 'has_supertag': False}].
+        """
+        if node_id not in self.node_field_values:
+            return []
+
+        node_fields = self.node_field_values[node_id]
+        if field_id not in node_fields:
+            return []
+
+        value_ids = node_fields[field_id]
+        if not value_ids:
+            return []
+
+        results = []
+        for value_id in value_ids:
+            # Check for checkbox values
+            if value_id == 'SYS_V03':
+                return [{'value': True, 'has_supertag': False}]
+            elif value_id == 'SYS_V04':
+                return [{'value': False, 'has_supertag': False}]
+
+            # Get value from doc
+            value_doc = self.doc_map.get(value_id)
+            if value_doc:
+                value_name = value_doc.get('props', {}).get('name', '')
+                if value_name:
+                    # Clean the value to handle inline references (dates, nodes, etc.)
+                    clean_value = self.clean_node_name(value_name)
+                    if clean_value:
+                        has_supertag = self._value_has_supertag(value_id)
+                        results.append({'value': clean_value, 'has_supertag': has_supertag})
+
+        return results
+
+    def get_field_value(self, node_id: str, field_id: str):
+        """Get the value(s) for a specific field on a node.
+
+        Returns the resolved value(s) based on field type:
+        - For reference fields: returns the node name(s)
+        - For text/option fields: returns the value text
+        - For checkbox fields: returns True/False based on SYS_V03 presence
+
+        Returns: single value or list of values, or None if not set
+        """
+        values_meta = self.get_field_values_with_metadata(node_id, field_id)
+        if not values_meta:
+            return None
+
+        # Extract just the values
+        if len(values_meta) == 1:
+            return values_meta[0]['value']
+        else:
+            return [m['value'] for m in values_meta]
+
+    def get_all_field_values(self, node_id: str) -> dict:
+        """Get all configured field values for a node.
+
+        Returns dict with frontmatter_name as key and formatted value.
+        Only includes fields that have values set.
+
+        Values that have supertags are automatically formatted as wikilinks,
+        regardless of the field's transform setting.
+        """
+        result = {}
+
+        if node_id not in self.node_field_values:
+            return result
+
+        for field_id, mapping_info in self.field_info_map.items():
+            values_meta = self.get_field_values_with_metadata(node_id, field_id)
+            if not values_meta:
+                continue
+
+            frontmatter_name = mapping_info['frontmatter_name']
+            transform = mapping_info['transform']
+
+            # Check if this is a boolean (checkbox) field
+            if len(values_meta) == 1 and isinstance(values_meta[0]['value'], bool):
+                bool_val = values_meta[0]['value']
+                if transform == 'status':
+                    result[frontmatter_name] = 'done' if bool_val else 'open'
+                else:
+                    result[frontmatter_name] = bool_val
+                continue
+
+            # Format each value - auto-wikilink if value has a supertag
+            formatted_values = []
+            for meta in values_meta:
+                val = meta['value']
+                has_tag = meta['has_supertag']
+
+                # Apply wikilink if value has supertag OR if transform is wikilink
+                if has_tag or transform == 'wikilink':
+                    formatted_values.append(f'[[{val}]]')
+                else:
+                    formatted_values.append(val)
+
+            # Return single value or list
+            if len(formatted_values) == 1:
+                result[frontmatter_name] = formatted_values[0]
+            else:
+                result[frontmatter_name] = formatted_values
+
+        return result
 
     def report_progress(self, phase: str, current: int = 0, total: int = 0, message: str = ""):
         """Send progress update to GUI."""
@@ -180,62 +350,31 @@ class TanaToObsidian:
         self.report_progress("Indexing", message=f"Built metanode->tags map with {len(self.metanode_tags)} entries")
         self.check_cancelled()
 
-        # Build meeting -> project/people indices via tuples
-        for doc in self.docs:
-            if doc.get('props', {}).get('_docType') == 'tuple':
-                children = doc.get('children', [])
-                owner_id = doc.get('props', {}).get('_ownerId')
-                if not owner_id or len(children) < 2:
-                    continue
+        # Build general field value index for configured fields
+        # This indexes all field values for nodes, keyed by field_id
+        configured_field_ids = set(self.field_info_map.keys())
+        if configured_field_ids:
+            for doc in self.docs:
+                if doc.get('props', {}).get('_docType') == 'tuple':
+                    children = doc.get('children', [])
+                    owner_id = doc.get('props', {}).get('_ownerId')
+                    if not owner_id or len(children) < 2:
+                        continue
 
-                # Check for Project field
-                if self.project_field_id in children:
-                    value_ids = [c for c in children if c != self.project_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.meeting_projects:
-                                self.meeting_projects[owner_id] = []
-                            self.meeting_projects[owner_id].append(value_id)
+                    # Check if any child is a configured field
+                    for field_id in configured_field_ids:
+                        if field_id in children:
+                            # Get value node IDs (everything except the field ID and system nodes)
+                            value_ids = [c for c in children if c != field_id and not c.startswith('SYS_')]
+                            if value_ids:
+                                if owner_id not in self.node_field_values:
+                                    self.node_field_values[owner_id] = {}
+                                if field_id not in self.node_field_values[owner_id]:
+                                    self.node_field_values[owner_id][field_id] = []
+                                self.node_field_values[owner_id][field_id].extend(value_ids)
 
-                # Check for People Involved field
-                if self.people_involved_field_id in children:
-                    value_ids = [c for c in children if c != self.people_involved_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.meeting_people:
-                                self.meeting_people[owner_id] = []
-                            self.meeting_people[owner_id].append(value_id)
-
-                # Check for Company field (on #person nodes)
-                if self.company_field_id in children:
-                    value_ids = [c for c in children if c != self.company_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.person_companies:
-                                self.person_companies[owner_id] = []
-                            self.person_companies[owner_id].append(value_id)
-
-                # Check for Cookbook field (on #recipe nodes)
-                if self.cookbook_field_id in children:
-                    value_ids = [c for c in children if c != self.cookbook_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            if owner_id not in self.recipe_cookbooks:
-                                self.recipe_cookbooks[owner_id] = []
-                            self.recipe_cookbooks[owner_id].append(value_id)
-
-                # Check for URL field (SYS_A78) - stores URL as node name
-                if self.url_field_id in children:
-                    value_ids = [c for c in children if c != self.url_field_id]
-                    for value_id in value_ids:
-                        if value_id in self.doc_map:
-                            url_node = self.doc_map[value_id]
-                            url_value = url_node.get('props', {}).get('name', '')
-                            if url_value and url_value.startswith(('http://', 'https://')):
-                                self.node_urls[owner_id] = html.unescape(url_value)
-
-        self.report_progress("Indexing", message="Built field indices")
-        self.check_cancelled()
+            self.report_progress("Indexing", message=f"Indexed field values for {len(self.node_field_values)} nodes")
+            self.check_cancelled()
 
         # Build image URL index - map node IDs to their Firebase URLs
         for doc in self.docs:
@@ -816,110 +955,6 @@ class TanaToObsidian:
                 return child
         return None
 
-    def get_project_reference(self, doc: dict) -> list:
-        """Get the project reference(s) for a node, if it has any.
-
-        Returns a list of project filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        projects = []
-
-        # Check if this node has project references via tuples
-        if doc_id in self.meeting_projects:
-            for project_node_id in self.meeting_projects[doc_id]:
-                if project_node_id in self.doc_map:
-                    project_node = self.doc_map[project_node_id]
-                    project_name = project_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(project_name)
-                    if clean_name:
-                        # Check if this project node was exported - use its actual filename
-                        if project_node_id in self.exported_files:
-                            projects.append(self.exported_files[project_node_id])
-                        else:
-                            projects.append(self.sanitize_filename(clean_name))
-
-        return projects
-
-    def get_people_involved(self, doc: dict) -> list:
-        """Get the people involved references for a node.
-
-        Returns a list of person filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        people = []
-
-        # Check if this node has people references via tuples
-        if doc_id in self.meeting_people:
-            for person_node_id in self.meeting_people[doc_id]:
-                if person_node_id in self.doc_map:
-                    person_node = self.doc_map[person_node_id]
-                    person_name = person_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(person_name)
-                    if clean_name:
-                        # Check if this person node was exported - use its actual filename
-                        if person_node_id in self.exported_files:
-                            people.append(self.exported_files[person_node_id])
-                        else:
-                            people.append(self.sanitize_filename(clean_name))
-
-        return people
-
-    def get_company_reference(self, doc: dict) -> list:
-        """Get the company references for a node (used for #person nodes).
-
-        Returns a list of company filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        companies = []
-
-        # Check if this node has company references via tuples
-        if doc_id in self.person_companies:
-            for company_node_id in self.person_companies[doc_id]:
-                if company_node_id in self.doc_map:
-                    company_node = self.doc_map[company_node_id]
-                    company_name = company_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(company_name)
-                    if clean_name:
-                        # Check if this company node was exported - use its actual filename
-                        if company_node_id in self.exported_files:
-                            companies.append(self.exported_files[company_node_id])
-                        else:
-                            companies.append(self.sanitize_filename(clean_name))
-
-        return companies
-
-    def get_cookbook_reference(self, doc: dict) -> list:
-        """Get the cookbook references for a node (used for #recipe nodes).
-
-        Returns a list of cookbook filenames (sanitized for use as Obsidian links).
-        """
-        doc_id = doc.get('id')
-        cookbooks = []
-
-        # Check if this node has cookbook references via tuples
-        if doc_id in self.recipe_cookbooks:
-            for cookbook_node_id in self.recipe_cookbooks[doc_id]:
-                if cookbook_node_id in self.doc_map:
-                    cookbook_node = self.doc_map[cookbook_node_id]
-                    cookbook_name = cookbook_node.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(cookbook_name)
-                    if clean_name:
-                        # Check if this cookbook node was exported - use its actual filename
-                        if cookbook_node_id in self.exported_files:
-                            cookbooks.append(self.exported_files[cookbook_node_id])
-                        else:
-                            cookbooks.append(self.sanitize_filename(clean_name))
-
-        return cookbooks
-
-    def get_url_value(self, doc: dict) -> str:
-        """Get the URL field value for a node, if any.
-
-        Returns the URL string or None.
-        """
-        doc_id = doc.get('id')
-        return self.node_urls.get(doc_id)
-
     def get_task_status(self, doc: dict) -> str:
         """Get the task status for a node.
 
@@ -1011,29 +1046,24 @@ class TanaToObsidian:
         return self.get_node_created_timestamp(doc)
 
     def create_frontmatter(self, tags: list, doc: dict = None, daily_date: str = None) -> str:
-        """Create YAML frontmatter with tags, date, project reference, people involved, company, cookbook, URL, and task status."""
-        projects = []
-        people_involved = []
-        companies = []
-        cookbooks = []
-        url = None
+        """Create YAML frontmatter with tags, date, task status, and dynamic field values."""
         task_status = None
         completed_date = None
         date_created = None
         date_modified = None
+        dynamic_fields = {}
+
         if doc:
-            projects = self.get_project_reference(doc)
-            people_involved = self.get_people_involved(doc)
-            companies = self.get_company_reference(doc)
-            cookbooks = self.get_cookbook_reference(doc)
-            url = self.get_url_value(doc)
             task_status = self.get_task_status(doc)
             completed_date = self.get_task_completed_date(doc)
             if task_status:
                 date_created = self.get_node_created_timestamp(doc)
                 date_modified = self.get_node_modified_timestamp(doc)
+            # Get dynamic field values from configured supertag fields
+            node_id = doc.get('id', '')
+            dynamic_fields = self.get_all_field_values(node_id)
 
-        if not tags and not projects and not people_involved and not companies and not cookbooks and not url and not daily_date and not task_status:
+        if not tags and not daily_date and not task_status and not dynamic_fields:
             return ''
 
         lines = ['---']
@@ -1054,53 +1084,61 @@ class TanaToObsidian:
                 lines.append(f'  - {tag}')
         if daily_date:
             lines.append(f'Date: "[[{daily_date}]]"')
-        if projects:
-            if len(projects) == 1:
-                lines.append(f'Project: "[[{projects[0]}]]"')
-            else:
-                lines.append('Project:')
-                for project in projects:
-                    lines.append(f'  - "[[{project}]]"')
-        if people_involved:
-            if len(people_involved) == 1:
-                lines.append(f'People Involved: "[[{people_involved[0]}]]"')
-            else:
-                lines.append('People Involved:')
-                for person in people_involved:
-                    lines.append(f'  - "[[{person}]]"')
-        if companies:
-            if len(companies) == 1:
-                lines.append(f'Company: "[[{companies[0]}]]"')
-            else:
-                lines.append('Company:')
-                for company in companies:
-                    lines.append(f'  - "[[{company}]]"')
-        if cookbooks:
-            if len(cookbooks) == 1:
-                lines.append(f'Cookbook: "[[{cookbooks[0]}]]"')
-            else:
-                lines.append('Cookbook:')
-                for cookbook in cookbooks:
-                    lines.append(f'  - "[[{cookbook}]]"')
-        if url:
-            lines.append(f'URL: "{url}"')
+
+        # Add dynamic field values from configured supertag fields
+        for field_name, field_value in dynamic_fields.items():
+            # Skip status if we've already added task status above
+            if field_name.lower() == 'status' and task_status:
+                continue
+            # Format the value for YAML
+            lines.append(self._format_frontmatter_field(field_name, field_value))
+
         lines.append('---')
         lines.append('')
 
         return '\n'.join(lines)
 
-    def create_merged_frontmatter(self, tags: set, projects: set, people: set,
-                                   companies: set, cookbooks: set = None, urls: set = None,
+    def _format_frontmatter_field(self, field_name: str, field_value) -> str:
+        """Format a field value for YAML frontmatter.
+
+        Handles:
+        - Booleans -> lowercase true/false
+        - Lists -> YAML list format
+        - Strings with special chars -> quoted (with inner quotes escaped)
+        - Numbers -> unquoted
+        """
+        if isinstance(field_value, bool):
+            return f'{field_name}: {str(field_value).lower()}'
+        elif isinstance(field_value, list):
+            if len(field_value) == 1:
+                return self._format_frontmatter_field(field_name, field_value[0])
+            lines = [f'{field_name}:']
+            for val in field_value:
+                # Quote strings that contain special characters
+                if isinstance(val, str) and any(c in val for c in ':#{}[]|>&*!"'):
+                    # Escape inner double quotes and backslashes for valid YAML
+                    escaped_val = val.replace('\\', '\\\\').replace('"', '\\"')
+                    lines.append(f'  - "{escaped_val}"')
+                else:
+                    lines.append(f'  - {val}')
+            return '\n'.join(lines)
+        elif isinstance(field_value, (int, float)):
+            return f'{field_name}: {field_value}'
+        else:
+            # String value - quote if it contains special YAML characters
+            val_str = str(field_value)
+            if any(c in val_str for c in ':#{}[]|>&*!"') or val_str.startswith('"'):
+                # Escape inner double quotes and backslashes for valid YAML
+                escaped_val = val_str.replace('\\', '\\\\').replace('"', '\\"')
+                return f'{field_name}: "{escaped_val}"'
+            return f'{field_name}: {val_str}'
+
+    def create_merged_frontmatter(self, tags: set, dynamic_fields: dict,
                                    earliest_date: str = None, task_status: str = None,
                                    completed_date: str = None, date_created: str = None,
                                    date_modified: str = None) -> str:
         """Create YAML frontmatter from aggregated/merged data."""
-        if cookbooks is None:
-            cookbooks = set()
-        if urls is None:
-            urls = set()
-
-        if not tags and not projects and not people and not companies and not cookbooks and not urls and not earliest_date and not task_status:
+        if not tags and not dynamic_fields and not earliest_date and not task_status:
             return ''
 
         lines = ['---']
@@ -1121,42 +1159,17 @@ class TanaToObsidian:
                 lines.append(f'  - {tag}')
         if earliest_date:
             lines.append(f'Date: "[[{earliest_date}]]"')
-        if projects:
-            sorted_projects = sorted(projects)
-            if len(sorted_projects) == 1:
-                lines.append(f'Project: "[[{sorted_projects[0]}]]"')
-            else:
-                lines.append('Project:')
-                for project in sorted_projects:
-                    lines.append(f'  - "[[{project}]]"')
-        if people:
-            sorted_people = sorted(people)
-            if len(sorted_people) == 1:
-                lines.append(f'People Involved: "[[{sorted_people[0]}]]"')
-            else:
-                lines.append('People Involved:')
-                for person in sorted_people:
-                    lines.append(f'  - "[[{person}]]"')
-        if companies:
-            sorted_companies = sorted(companies)
-            if len(sorted_companies) == 1:
-                lines.append(f'Company: "[[{sorted_companies[0]}]]"')
-            else:
-                lines.append('Company:')
-                for company in sorted_companies:
-                    lines.append(f'  - "[[{company}]]"')
-        if cookbooks:
-            sorted_cookbooks = sorted(cookbooks)
-            if len(sorted_cookbooks) == 1:
-                lines.append(f'Cookbook: "[[{sorted_cookbooks[0]}]]"')
-            else:
-                lines.append('Cookbook:')
-                for cookbook in sorted_cookbooks:
-                    lines.append(f'  - "[[{cookbook}]]"')
-        if urls:
-            # Use the first URL if there are multiple (shouldn't normally happen)
-            sorted_urls = sorted(urls)
-            lines.append(f'URL: "{sorted_urls[0]}"')
+
+        # Add dynamic field values
+        for field_name, field_values in sorted(dynamic_fields.items()):
+            # Skip status if we've already added task status above
+            if field_name.lower() == 'status' and task_status:
+                continue
+            # Convert set to sorted list for consistent output
+            if isinstance(field_values, set):
+                field_values = sorted(field_values)
+            lines.append(self._format_frontmatter_field(field_name, field_values))
+
         lines.append('---')
         lines.append('')
 
@@ -1179,11 +1192,7 @@ class TanaToObsidian:
 
             # Collect aggregated frontmatter data
             all_tags = set()
-            all_projects = set()
-            all_people = set()
-            all_companies = set()
-            all_cookbooks = set()
-            all_urls = set()
+            all_dynamic_fields = {}  # field_name -> set of values
             earliest_date = None
             folder = entries[0][2]  # Use folder from first entry
             # For task status: track if any task is done and if any is a task
@@ -1195,13 +1204,21 @@ class TanaToObsidian:
 
             for date, doc, _ in entries:
                 all_tags.update(self.get_node_tags(doc))
-                all_projects.update(self.get_project_reference(doc))
-                all_people.update(self.get_people_involved(doc))
-                all_companies.update(self.get_company_reference(doc))
-                all_cookbooks.update(self.get_cookbook_reference(doc))
-                url = self.get_url_value(doc)
-                if url:
-                    all_urls.add(url)
+                # Aggregate dynamic field values
+                node_id = doc.get('id', '')
+                node_fields = self.get_all_field_values(node_id)
+                for field_name, field_value in node_fields.items():
+                    if field_name not in all_dynamic_fields:
+                        all_dynamic_fields[field_name] = set()
+                    # Add value(s) to the set
+                    if isinstance(field_value, list):
+                        all_dynamic_fields[field_name].update(field_value)
+                    elif isinstance(field_value, bool):
+                        # For booleans, keep track of True/False separately
+                        all_dynamic_fields[field_name].add(field_value)
+                    else:
+                        all_dynamic_fields[field_name].add(field_value)
+
                 if date and (not earliest_date or date < earliest_date):
                     earliest_date = date
                 # Check task status
@@ -1237,8 +1254,7 @@ class TanaToObsidian:
 
             # Build frontmatter
             frontmatter = self.create_merged_frontmatter(
-                all_tags, all_projects, all_people, all_companies,
-                all_cookbooks, all_urls, earliest_date, task_status, completed_date,
+                all_tags, all_dynamic_fields, earliest_date, task_status, completed_date,
                 date_created, date_modified
             )
 
@@ -1594,8 +1610,13 @@ class TanaToObsidian:
 
             # Create output directories
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            daily_notes_dir = self.output_dir / 'Daily Notes'
-            tasks_dir = self.output_dir / 'Tasks'
+
+            # Get daily notes folder from day tag's configured folder (or default)
+            daily_notes_dir = self.output_dir
+            if self.day_tag_id and self.day_tag_id in self.supertag_folders:
+                folder_name = self.supertag_folders[self.day_tag_id]
+                if folder_name:
+                    daily_notes_dir = self.output_dir / folder_name
 
             # Counters
             daily_count = 0
@@ -1643,11 +1664,8 @@ class TanaToObsidian:
             self.check_cancelled()
 
             for idx, (node, filename, daily_date) in enumerate(all_tagged_nodes):
-                # Determine folder based on tags
-                if self.is_task(node):
-                    folder = tasks_dir
-                else:
-                    folder = self.output_dir
+                # Determine folder based on node's supertag configuration
+                folder = self._get_node_output_folder(node)
 
                 # Add to pending merges
                 if filename not in self.pending_merges:
@@ -1695,11 +1713,8 @@ class TanaToObsidian:
                     # Track this node -> filename mapping
                     self.exported_files[doc_id] = base_filename
 
-                    # Determine folder
-                    if self.is_task(doc):
-                        folder = tasks_dir
-                    else:
-                        folder = self.output_dir
+                    # Determine folder based on node's supertag configuration
+                    folder = self._get_node_output_folder(doc)
 
                     # Add to pending merges
                     if base_filename not in self.pending_merges:
@@ -1742,6 +1757,11 @@ class TanaToObsidian:
                     if self.should_skip_referenced_node(doc):
                         continue
 
+                    # Skip if node has any supertag (this option is for nodes WITHOUT supertags)
+                    # Nodes with supertags should be exported via supertag selection, not here
+                    if self._doc_has_any_supertag(doc):
+                        continue
+
                     name = doc.get('props', {}).get('name', '')
                     clean_name = self.clean_node_name(name)
                     if not clean_name:
@@ -1772,8 +1792,15 @@ class TanaToObsidian:
                     if children_content:
                         content_parts.append(children_content)
 
+                    # Determine output folder for untagged library nodes
+                    if self.settings.untagged_library_folder:
+                        output_folder = self.output_dir / self.settings.untagged_library_folder
+                        output_folder.mkdir(parents=True, exist_ok=True)
+                    else:
+                        output_folder = self.output_dir
+
                     # Write file
-                    file_path = self.output_dir / f'{filename}.md'
+                    file_path = output_folder / f'{filename}.md'
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write('\n'.join(content_parts))
 

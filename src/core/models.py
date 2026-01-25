@@ -11,8 +11,10 @@ class FieldInfo:
     id: str
     name: str
     field_type: str  # 'plain', 'options_from_supertag', 'system_done'
+    data_type: str = 'plain'  # 'checkbox', 'options', 'date', 'number', 'url', 'plain'
     source_supertag_id: Optional[str] = None  # For options_from_supertag fields
     source_supertag_name: Optional[str] = None
+    options: List[str] = field(default_factory=list)  # Available options for 'options' data_type
 
 
 @dataclass
@@ -43,6 +45,7 @@ class SupertagConfig:
     supertag_name: str
     include: bool = True
     field_mappings: List[FieldMapping] = field(default_factory=list)
+    output_folder: str = ""  # Subfolder for this supertag's output (empty = root)
 
 
 @dataclass
@@ -57,6 +60,8 @@ class ConversionSettings:
     # Global options (simplified in v2)
     download_images: bool = True
     include_library_nodes: bool = True  # Include referenced nodes without supertags
+    attachments_folder: str = "Attachments"  # Subfolder for images/attachments
+    untagged_library_folder: str = ""  # Subfolder for untagged library nodes (empty = root)
 
     # Legacy options (kept for backward compatibility but not exposed in UI)
     skip_readwise: bool = False
@@ -64,14 +69,6 @@ class ConversionSettings:
     skip_field_definitions: bool = True  # Always true in v2
     skip_week_nodes: bool = True  # Legacy - now handled via supertag selection
     skip_year_nodes: bool = True  # Legacy - now handled via supertag selection
-
-    # Legacy field IDs (deprecated - now handled via supertag_configs)
-    # Kept for backward compatibility with existing converter code during transition
-    project_field_id: str = 'zaD_EkMhKP'
-    people_involved_field_id: str = 'znaT5AHKXQkR'
-    company_field_id: str = 'LNd_B370Hr'
-    cookbook_field_id: str = 'Y_572Dtvp_QO'
-    url_field_id: str = 'SYS_A78'
 
 
 @dataclass

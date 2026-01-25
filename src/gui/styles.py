@@ -3,7 +3,7 @@
 # Window settings
 WINDOW_TITLE = "Tana to Obsidian Converter"
 WINDOW_GEOMETRY = "800x750"
-WINDOW_MIN_SIZE = (700, 700)
+WINDOW_MIN_SIZE = (700, 650)
 
 # Padding and spacing
 PAD_X = 20

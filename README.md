@@ -4,10 +4,11 @@ A cross-platform desktop application that converts Tana exports to Obsidian-comp
 
 ## Features
 
-- Converts Tana JSON exports to Obsidian markdown
-- Daily notes exported to `Daily Notes/YYYY-MM-DD.md`
-- Tagged nodes become separate markdown files with YAML frontmatter
-- Tasks are placed in a dedicated `Tasks/` folder
+- **Wizard-based interface** - Simple 3-step process: Select File → Select Supertags → Convert
+- **Automatic supertag discovery** - Scans your export to find all supertags and their fields
+- **Dynamic field mapping** - Field values automatically extracted to YAML frontmatter
+- **Configurable output folders** - Customize where each supertag's files are saved
+- **Smart wikilinks** - Field values with supertags automatically become `[[wikilinks]]`
 - References converted to `[[Obsidian links]]`
 - Images downloaded from Firebase and embedded as `![[attachments]]`
 - Progress tracking with cancel support
@@ -25,8 +26,8 @@ Requires Python 3.11+
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tana-to-obsidian.git
-cd tana-to-obsidian
+git clone https://github.com/iamactionbarry/tanamigrator.git
+cd tanamigrator
 
 # Create virtual environment
 python3 -m venv .venv
@@ -43,13 +44,22 @@ python -m src.main
 
 1. **Export from Tana**: In Tana, go to Settings → Export → Download JSON
 2. **Launch the converter**: Run the application
-3. **Select files**:
+3. **Step 1 - Select File**:
    - Choose your Tana export JSON file
-   - Choose an output directory for Obsidian files
-4. **Configure options**:
-   - Download images from Firebase
-   - Skip Readwise/Highlight/Week/Year nodes
-5. **Click Convert**: Watch the progress and review the log
+   - Optionally ignore items in Tana trash
+   - Click Next to scan the export (progress bar shows scanning status)
+4. **Step 2 - Select Supertags**:
+   - Review discovered supertags and their instance counts
+   - Check/uncheck supertags to include in conversion
+   - Optionally include referenced Library nodes without supertags
+   - Field mappings are auto-configured based on field types
+5. **Step 3 - Configure and Convert**:
+   - Choose output directory
+   - **Configure output folders** for each supertag (e.g., Daily Notes, Tasks, Projects)
+   - Set attachments folder for images
+   - Set folder for untagged Library nodes (if enabled)
+   - Configure options (download images)
+   - Click Convert and watch the progress
 6. **Open in Obsidian**: Point Obsidian to your output directory
 
 ## Conversion Details
@@ -58,33 +68,54 @@ python -m src.main
 
 | Tana | Obsidian |
 |------|----------|
-| Daily notes (`journalPart`) | `Daily Notes/YYYY-MM-DD.md` |
-| Nodes with `#task` tag | `Tasks/<name>.md` |
-| Nodes with other supertags | `<name>.md` with YAML tags |
+| Daily notes (`#day`) | Configurable folder (default: root) |
+| Nodes with `#task` tag | Configurable folder (default: root) |
+| Nodes with other supertags | Configurable folders with YAML frontmatter |
 | Inline references | `[[wikilinks]]` |
 | Date references | `[[YYYY-MM-DD]]` |
-| Firebase images | `![[Attachments/image.png]]` |
+| Firebase images | `![[Attachments/image.png]]` (folder configurable) |
 | Bold/italic | `**bold**` / `*italic*` |
+
+### Output Folder Configuration
+
+In Step 3, you can specify a subfolder for each selected supertag:
+- **#day** → "Daily Notes" (suggested default)
+- **#task** → "Tasks" (suggested default)
+- **#project** → "Projects" (or any custom folder)
+- **Attachments** → Where images are saved
+- **Untagged Library** → Where referenced nodes without supertags are saved
+
+Leave a folder blank to save files in the root output directory.
 
 ### YAML Frontmatter
 
 Tagged nodes include frontmatter with:
 - `tags`: Supertag names
-- `Date`: Link to daily note
-- `Project`: Project references
-- `People Involved`: Person references
-- `status`: Task status (open/done)
+- `Date`: Link to daily note (for nodes associated with a day)
+- `status`: Task status (open/done) for nodes with done checkbox enabled
 - `completedDate`: When task was completed
+- **Dynamic fields**: Any field values from your supertags are automatically included
+  - Reference fields (options from supertag) → `[[wikilinks]]`
+  - Field values that have supertags → automatically `[[wikilinks]]`
+  - Checkbox fields → `true`/`false`
+  - Options fields → selected option value
+  - Text, URL, date, number fields → plain values
+
+### Library Nodes
+
+When "Include Library nodes without supertags if they are referenced by an exported node" is enabled:
+- Referenced nodes without supertags get their own markdown files
+- Nodes WITH supertags are only exported if that supertag is selected
+- Wikilinks to unselected supertag nodes remain as links (but no file is created)
 
 ### Skipped Content
 
-By default, the converter skips:
-- System nodes (IDs starting with `SYS_`)
-- Trashed nodes
-- Readwise integration nodes
-- Week/Year overview nodes
-- Highlight nodes
-- Field definition nodes
+The following are automatically excluded from the supertag selection:
+- System supertags (IDs starting with `SYS_`)
+- Meta information, row defaults, and field definition supertags
+- Supertags in the Tana trash (when "Ignore items in Tana trash" is checked)
+
+You control which supertags to convert via the selection wizard in Step 2.
 
 ## Building from Source
 
@@ -138,15 +169,16 @@ pytest
 ### Project Structure
 
 ```
-tana-to-obsidian/
+tanamigrator/
 ├── src/
 │   ├── main.py              # Entry point
 │   ├── core/
 │   │   ├── converter.py     # Main conversion logic
+│   │   ├── scanner.py       # Supertag/field discovery
 │   │   ├── models.py        # Data classes
 │   │   └── exceptions.py    # Custom exceptions
 │   └── gui/
-│       ├── app.py           # Main window
+│       ├── app.py           # Main window (wizard interface)
 │       ├── components.py    # UI components
 │       └── styles.py        # Theme constants
 ├── tests/

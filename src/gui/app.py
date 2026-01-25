@@ -126,6 +126,14 @@ class TanaToObsidianApp(ctk.CTk):
         )
         self.json_picker.pack(fill="x", padx=10, pady=10)
 
+        # Scan options
+        self.ignore_trash_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            self.step1_frame,
+            text="Ignore items in Tana trash",
+            variable=self.ignore_trash_var
+        ).pack(anchor="w", padx=25, pady=(10, 5))
+
         # Status area
         self.step1_status = ctk.CTkLabel(
             self.step1_frame,
@@ -287,7 +295,8 @@ class TanaToObsidianApp(ctk.CTk):
                 self.json_path,
                 progress_callback=lambda p: self.after(0, lambda: self.step1_status.configure(
                     text=f"Scanning: {p.message}"
-                ))
+                )),
+                ignore_trash=self.ignore_trash_var.get()
             )
             self.supertag_infos = scanner.scan()
 

@@ -152,11 +152,21 @@ class SupertagSelectionFrame(ctk.CTkFrame):
         ).pack(side="right", padx=5)
 
         # Scrollable area
-        self.scrollable = ctk.CTkScrollableFrame(self, height=350)
+        self.scrollable = ctk.CTkScrollableFrame(self, height=300)
         self.scrollable.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         self.checkboxes: Dict[str, ctk.CTkCheckBox] = {}
         self.variables: Dict[str, ctk.BooleanVar] = {}
+
+        # Library nodes option at bottom
+        self.include_library_nodes_var = ctk.BooleanVar(value=True)
+        library_cb = ctk.CTkCheckBox(
+            self,
+            text="Include Library nodes without supertags if they are referenced by an exported node",
+            variable=self.include_library_nodes_var,
+            font=("", 12)
+        )
+        library_cb.pack(anchor="w", padx=15, pady=(5, 10))
 
     def set_supertags(self, supertags: List['SupertagInfo']):
         """Populate the list with supertags."""
@@ -230,6 +240,10 @@ class SupertagSelectionFrame(ctk.CTkFrame):
         """Return list of selected supertag IDs."""
         return [tag_id for tag_id, var in self.variables.items() if var.get()]
 
+    def get_include_library_nodes(self) -> bool:
+        """Return whether to include library nodes without supertags."""
+        return self.include_library_nodes_var.get()
+
     def _select_all(self):
         """Select all supertags except field-definition."""
         for tag_id, var in self.variables.items():
@@ -255,11 +269,9 @@ class GlobalOptionsFrame(ctk.CTkFrame):
 
         # Create checkbox variables
         self.download_images_var = ctk.BooleanVar(value=True)
-        self.include_library_nodes_var = ctk.BooleanVar(value=True)
 
         # Create checkboxes
         self._create_checkbox("Download images from Firebase", self.download_images_var)
-        self._create_checkbox("Include Library nodes without supertags", self.include_library_nodes_var)
 
     def _create_checkbox(self, text: str, variable: ctk.BooleanVar):
         """Create and pack a checkbox."""
@@ -271,7 +283,6 @@ class GlobalOptionsFrame(ctk.CTkFrame):
         """Return all option values as a dictionary."""
         return {
             "download_images": self.download_images_var.get(),
-            "include_library_nodes": self.include_library_nodes_var.get(),
         }
 
 
@@ -498,3 +509,95 @@ class ActionButtonsFrame(ctk.CTkFrame):
         else:
             self.convert_button.configure(state="normal")
             self.cancel_button.configure(state="disabled")
+
+
+class FolderConfigFrame(ctk.CTkFrame):
+    """Frame for configuring output folders for supertags and attachments."""
+
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        # Header
+        self.header = ctk.CTkLabel(self, text="Output Folders", font=("", 14, "bold"))
+        self.header.pack(anchor="w", padx=15, pady=(12, 8))
+
+        ctk.CTkLabel(
+            self,
+            text="Specify subfolders for each supertag (leave empty for root output folder)",
+            font=("", 11),
+            text_color="gray"
+        ).pack(anchor="w", padx=15, pady=(0, 8))
+
+        # Scrollable area for supertag folders
+        self.scrollable = ctk.CTkScrollableFrame(self, height=150)
+        self.scrollable.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Configure grid columns for scrollable
+        self.scrollable.grid_columnconfigure(1, weight=1)
+
+        self.folder_entries: Dict[str, ctk.CTkEntry] = {}
+        self.supertag_names: Dict[str, str] = {}
+
+        # Attachments folder at bottom
+        attachments_frame = ctk.CTkFrame(self, fg_color="transparent")
+        attachments_frame.pack(fill="x", padx=10, pady=(5, 12))
+        attachments_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            attachments_frame,
+            text="Attachments folder:",
+            width=140,
+            anchor="w"
+        ).grid(row=0, column=0, padx=(5, 10), sticky="w")
+
+        self.attachments_entry = ctk.CTkEntry(attachments_frame, width=200)
+        self.attachments_entry.grid(row=0, column=1, sticky="ew", padx=(0, 5))
+        self.attachments_entry.insert(0, "Attachments")
+
+    def set_supertags(self, supertag_configs: List['SupertagConfig']):
+        """Populate the folder configuration with selected supertags."""
+        # Clear existing
+        for widget in self.scrollable.winfo_children():
+            widget.destroy()
+        self.folder_entries.clear()
+        self.supertag_names.clear()
+
+        # Add row for each supertag
+        for i, config in enumerate(supertag_configs):
+            self.supertag_names[config.supertag_id] = config.supertag_name
+
+            # Label
+            label = ctk.CTkLabel(
+                self.scrollable,
+                text=f"#{config.supertag_name}:",
+                width=140,
+                anchor="w"
+            )
+            label.grid(row=i, column=0, padx=(5, 10), pady=4, sticky="w")
+
+            # Entry for folder
+            entry = ctk.CTkEntry(self.scrollable, width=200)
+            entry.grid(row=i, column=1, pady=4, sticky="ew", padx=(0, 5))
+
+            # Set default folder based on special types
+            default_folder = ""
+            if config.supertag_name.lower() == 'day':
+                default_folder = "Daily Notes"
+            elif config.supertag_name.lower() == 'task':
+                default_folder = "Tasks"
+
+            if default_folder:
+                entry.insert(0, default_folder)
+
+            self.folder_entries[config.supertag_id] = entry
+
+    def get_folder_mappings(self) -> Dict[str, str]:
+        """Return dict mapping supertag_id -> folder name."""
+        return {
+            tag_id: entry.get().strip()
+            for tag_id, entry in self.folder_entries.items()
+        }
+
+    def get_attachments_folder(self) -> str:
+        """Return the attachments folder name."""
+        return self.attachments_entry.get().strip() or "Attachments"

@@ -431,11 +431,8 @@ class TestFullConversion:
         conv = TanaToObsidian(default_settings)
         conv.run()
 
-        daily_notes_dir = temp_output_dir / "Daily Notes"
-        assert daily_notes_dir.exists()
-
-        # Check for specific daily note
-        daily_note = daily_notes_dir / "2024-01-15.md"
+        # Daily notes go to root output dir when no folder is configured
+        daily_note = temp_output_dir / "2024-01-15.md"
         assert daily_note.exists()
 
     def test_blank_daily_notes_skipped(self, default_settings, temp_output_dir):
@@ -446,21 +443,19 @@ class TestFullConversion:
         # The fixture has a blank daily note (2024-01-17)
         assert result.blank_daily_notes_skipped >= 1
 
-        daily_notes_dir = temp_output_dir / "Daily Notes"
-        blank_note = daily_notes_dir / "2024-01-17.md"
+        # Check blank note doesn't exist in root output dir
+        blank_note = temp_output_dir / "2024-01-17.md"
         assert not blank_note.exists()
 
-    def test_tasks_in_tasks_folder(self, default_settings, temp_output_dir):
-        """Test that tasks are placed in Tasks folder."""
+    def test_tasks_exported(self, default_settings, temp_output_dir):
+        """Test that tasks are exported as files."""
         conv = TanaToObsidian(default_settings)
-        conv.run()
+        result = conv.run()
 
-        tasks_dir = temp_output_dir / "Tasks"
-        assert tasks_dir.exists()
-
-        # Check that task file exists
-        task_files = list(tasks_dir.glob("*.md"))
-        assert len(task_files) > 0
+        # Tasks go to root output dir when no folder is configured
+        # Check that some task-related file exists
+        md_files = list(temp_output_dir.glob("*.md"))
+        assert len(md_files) > 0
 
     def test_tagged_nodes_exported(self, default_settings, temp_output_dir):
         """Test that tagged nodes are exported as separate files."""

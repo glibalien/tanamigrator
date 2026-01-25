@@ -29,6 +29,7 @@ from .components import (
     StepIndicator,
     SupertagSelectionFrame,
     GlobalOptionsFrame,
+    FolderConfigFrame,
     ProgressFrame,
     LogFrame,
     WizardNavigationFrame,
@@ -54,6 +55,7 @@ class TanaToObsidianApp(ctk.CTk):
         self.output_dir: Optional[Path] = None
         self.supertag_infos: List[SupertagInfo] = []
         self.supertag_configs: Dict[str, SupertagConfig] = {}
+        self.include_library_nodes: bool = True
 
         # Conversion state
         self.conversion_thread: Optional[threading.Thread] = None
@@ -181,16 +183,20 @@ class TanaToObsidianApp(ctk.CTk):
         )
         self.output_picker.pack(fill="x", padx=10, pady=10)
 
+        # Folder configuration for supertags
+        self.folder_config = FolderConfigFrame(self.step3_frame)
+        self.folder_config.pack(fill="x", padx=10, pady=10)
+
         # Options
         self.options_frame = GlobalOptionsFrame(self.step3_frame)
-        self.options_frame.pack(fill="x", padx=10, pady=10)
+        self.options_frame.pack(fill="x", padx=10, pady=5)
 
         # Progress
         self.progress_frame = ProgressFrame(self.step3_frame)
-        self.progress_frame.pack(fill="x", padx=10, pady=10)
+        self.progress_frame.pack(fill="x", padx=10, pady=5)
 
         # Log
-        self.log_frame = LogFrame(self.step3_frame, height=150)
+        self.log_frame = LogFrame(self.step3_frame, height=120)
         self.log_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
     def _setup_layout(self):
@@ -281,8 +287,15 @@ class TanaToObsidianApp(ctk.CTk):
             messagebox.showerror("Error", "Please select at least one supertag to convert.")
             return False
 
+        # Save include_library_nodes option from step 2
+        self.include_library_nodes = self.supertag_selection.get_include_library_nodes()
+
         # Build supertag configs based on selection
         self._build_supertag_configs(selected)
+
+        # Populate folder configuration on step 3
+        self.folder_config.set_supertags(list(self.supertag_configs.values()))
+
         return True
 
     def _scan_export(self):
@@ -347,6 +360,12 @@ class TanaToObsidianApp(ctk.CTk):
         self._log(f"Output: {self.output_dir}")
         self._log(f"Supertags selected: {len(self.supertag_configs)}")
 
+        # Get folder mappings and update supertag configs
+        folder_mappings = self.folder_config.get_folder_mappings()
+        for tag_id, config in self.supertag_configs.items():
+            if tag_id in folder_mappings:
+                config.output_folder = folder_mappings[tag_id]
+
         # Build settings
         options = self.options_frame.get_options()
         settings = ConversionSettings(
@@ -354,7 +373,8 @@ class TanaToObsidianApp(ctk.CTk):
             output_dir=self.output_dir,
             supertag_configs=list(self.supertag_configs.values()),
             download_images=options["download_images"],
-            include_library_nodes=options["include_library_nodes"],
+            include_library_nodes=self.include_library_nodes,
+            attachments_folder=self.folder_config.get_attachments_folder(),
         )
 
         # Start conversion in background thread

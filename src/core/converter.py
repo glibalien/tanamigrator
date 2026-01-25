@@ -65,19 +65,21 @@ class TanaToObsidian:
         self.pending_merges = {}  # base_filename -> list of (date, doc, folder)
 
         # Image handling
-        self.attachments_dir = self.output_dir / 'Attachments'
+        self.attachments_dir = self.output_dir / settings.attachments_folder
         self.downloaded_images = {}  # url -> local filename
         self.image_download_errors = []  # track failed downloads
         self.image_urls = {}  # node_id -> firebase_url
         self.image_metadata_urls = {}  # node_id -> firebase_url
 
-        # Selected supertags filter (from wizard selection)
+        # Selected supertags filter and folder mappings (from wizard selection)
         self.selected_supertag_ids = set()
+        self.supertag_folders = {}  # supertag_id -> folder path (relative to output_dir)
         if settings.supertag_configs:
-            self.selected_supertag_ids = {
-                config.supertag_id for config in settings.supertag_configs
-                if config.include
-            }
+            for config in settings.supertag_configs:
+                if config.include:
+                    self.selected_supertag_ids.add(config.supertag_id)
+                    # Store folder path (empty string means root)
+                    self.supertag_folders[config.supertag_id] = config.output_folder
 
         # General field value index for dynamic frontmatter
         # node_id -> {field_id: [value_node_ids]}
@@ -102,6 +104,22 @@ class TanaToObsidian:
                         'frontmatter_name': mapping.frontmatter_name,
                         'transform': mapping.transform,
                     }
+
+    def _get_node_output_folder(self, doc: dict) -> Path:
+        """Get the output folder for a node based on its supertags.
+
+        Returns the folder path (relative to output_dir) based on configured supertag folders.
+        If the node has multiple supertags with folders, uses the first one found.
+        If no folder is configured, returns the root output_dir.
+        """
+        meta_id = doc.get('props', {}).get('_metaNodeId')
+        if meta_id and meta_id in self.metanode_tags:
+            for tag_id in self.metanode_tags[meta_id]:
+                if tag_id in self.supertag_folders:
+                    folder_name = self.supertag_folders[tag_id]
+                    if folder_name:
+                        return self.output_dir / folder_name
+        return self.output_dir
 
     def _doc_has_any_supertag(self, doc: dict) -> bool:
         """Check if a document has any supertag (regardless of selection).
@@ -1592,8 +1610,13 @@ class TanaToObsidian:
 
             # Create output directories
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            daily_notes_dir = self.output_dir / 'Daily Notes'
-            tasks_dir = self.output_dir / 'Tasks'
+
+            # Get daily notes folder from day tag's configured folder (or default)
+            daily_notes_dir = self.output_dir
+            if self.day_tag_id and self.day_tag_id in self.supertag_folders:
+                folder_name = self.supertag_folders[self.day_tag_id]
+                if folder_name:
+                    daily_notes_dir = self.output_dir / folder_name
 
             # Counters
             daily_count = 0
@@ -1641,11 +1664,8 @@ class TanaToObsidian:
             self.check_cancelled()
 
             for idx, (node, filename, daily_date) in enumerate(all_tagged_nodes):
-                # Determine folder based on tags
-                if self.is_task(node):
-                    folder = tasks_dir
-                else:
-                    folder = self.output_dir
+                # Determine folder based on node's supertag configuration
+                folder = self._get_node_output_folder(node)
 
                 # Add to pending merges
                 if filename not in self.pending_merges:
@@ -1693,11 +1713,8 @@ class TanaToObsidian:
                     # Track this node -> filename mapping
                     self.exported_files[doc_id] = base_filename
 
-                    # Determine folder
-                    if self.is_task(doc):
-                        folder = tasks_dir
-                    else:
-                        folder = self.output_dir
+                    # Determine folder based on node's supertag configuration
+                    folder = self._get_node_output_folder(doc)
 
                     # Add to pending merges
                     if base_filename not in self.pending_merges:

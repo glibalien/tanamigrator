@@ -41,7 +41,7 @@ python -m src.main
 
 ## Usage
 
-1. **Export from Tana**: In Tana, go to Settings → Export → Download JSON
+1. **Export from Tana**: In Tana, go to Workspace Settings → Export Workspace as JSON
 2. **Launch the converter**: Run the application
 3. **Step 1 - Select File**:
    - Choose your Tana export JSON file

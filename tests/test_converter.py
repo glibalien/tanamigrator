@@ -516,11 +516,12 @@ class TestFrontmatter:
 class TestImageHandling:
     """Tests for image URL handling."""
 
-    def test_is_image_url(self, converter):
-        """Test image URL detection."""
-        assert converter.is_image_url("https://example.com/image.png") is True
-        assert converter.is_image_url("https://example.com/image.jpg") is True
-        assert converter.is_image_url("https://example.com/file.pdf") is False
+    def test_is_attachment_url(self, converter):
+        """Test attachment URL detection."""
+        assert converter.is_attachment_url("https://example.com/image.png") is True
+        assert converter.is_attachment_url("https://example.com/image.jpg") is True
+        assert converter.is_attachment_url("https://example.com/file.pdf") is True
+        assert converter.is_attachment_url("https://example.com/file.txt") is False
 
     def test_extract_filename_from_url(self, converter):
         """Test filename extraction from URL."""

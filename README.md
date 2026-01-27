@@ -10,7 +10,7 @@ A cross-platform desktop application that converts Tana exports to markdown file
 - **Configurable output folders** - Customize where each supertag's files are saved
 - **Smart wikilinks** - Field values with supertags automatically become `[[wikilinks]]`
 - References converted to `[[Obsidian links]]`
-- Images downloaded from Firebase and embedded as `![[attachments]]`
+- Images and PDFs downloaded from Firebase and embedded as `![[attachments]]`
 - Cross-platform: Windows, macOS, Linux
 
 ## Installation
@@ -55,9 +55,9 @@ python -m src.main
 5. **Step 3 - Configure and Convert**:
    - Choose output directory
    - **Configure output folders** for each supertag (e.g., Daily Notes, Tasks, Projects)
-   - Set attachments folder for images
+   - Set attachments folder for images and PDFs
    - Set folder for untagged nodes (if enabled)
-   - Configure options (download images)
+   - Configure options (download images and PDFs)
    - Click Convert and watch the progress
 6. **Open in Obsidian**: Point Obsidian to your output directory
 
@@ -71,7 +71,7 @@ python -m src.main
 | Nodes with supertags | Configurable folders with YAML frontmatter |
 | Inline references | `[[wikilinks]]` |
 | Date references | `[[YYYY-MM-DD]]` |
-| Firebase images | `![[Attachments/image.png]]` (folder configurable) |
+| Firebase images and PDFs | `![[Attachments/image.png]]` (folder configurable) |
 | Referenced nodes w/o supertags | Configurable folder |
 
 ### Output Folder Configuration
@@ -80,7 +80,7 @@ In Step 3, you can specify a subfolder for each selected supertag:
 - **#day** → "Daily Notes" (suggested default)
 - **#task** → "Tasks" (suggested default)
 - **All other supertags** → User-configurable subfolders
-- **Attachments** → Where images are saved
+- **Attachments** → Where images and PDFs are saved
 - **Untagged Nodes** → Where referenced nodes without supertags are saved
 
 Leave a folder blank to save files in the root output directory.

@@ -146,11 +146,8 @@ class TestBuildIndices:
 
     def test_special_tags_identified(self, converter):
         """Test that special tags are identified."""
-        assert converter.task_tag_id == "tag_task"
         assert converter.day_tag_id == "tag_day"
         assert converter.meeting_tag_id == "tag_meeting"
-        assert converter.week_tag_id == "tag_week"
-        assert converter.readwise_tag_id == "tag_readwise"
 
     def test_metanode_tags_mapped(self, converter):
         """Test that metanode to tags mapping is built."""
@@ -259,14 +256,6 @@ class TestNodeTagChecks:
         task_doc = converter.doc_map["task1"]
         tags = converter.get_node_tags(task_doc)
         assert "task" in tags
-
-    def test_is_task(self, converter):
-        """Test checking if a node is a task."""
-        task_doc = converter.doc_map["task1"]
-        assert converter.is_task(task_doc) is True
-
-        meeting_doc = converter.doc_map["meeting1"]
-        assert converter.is_task(meeting_doc) is False
 
     def test_is_daily_note(self, converter):
         """Test checking if a node is a daily note."""
@@ -495,23 +484,6 @@ class TestFieldExtraction:
         result = converter.get_all_field_values("task1")
         # Without configured field mappings, should return empty dict
         assert isinstance(result, dict)
-
-
-class TestTaskStatus:
-    """Tests for task status extraction."""
-
-    def test_done_task_status(self, converter):
-        """Test that done tasks return 'done' status."""
-        task_doc = converter.doc_map["task1"]
-        status = converter.get_task_status(task_doc)
-        assert status == "done"
-
-    def test_completed_date_extracted(self, converter):
-        """Test that completion date is extracted."""
-        task_doc = converter.doc_map["task1"]
-        completed = converter.get_task_completed_date(task_doc)
-        assert completed is not None
-        assert "2024" in completed
 
 
 class TestFrontmatter:

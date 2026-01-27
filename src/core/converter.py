@@ -343,7 +343,7 @@ class TanaToObsidian:
             name = doc.get('props', {}).get('name', '')
             if 'firebasestorage.googleapis.com' in str(name):
                 # Check if it's an image URL
-                if any(ext in name.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']):
+                if any(ext in name.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf']):
                     self.image_urls[doc['id']] = html.unescape(name.replace('&amp;', '&'))
 
         self.report_progress("Indexing", message=f"Found {len(self.image_urls)} image URLs")
@@ -401,7 +401,7 @@ class TanaToObsidian:
             if re.match(r'^[A-Za-z]', part) and not re.match(r'^[0-9A-Fa-f]+$', part):
                 filename = '-'.join(parts[i:])
                 break
-            if re.search(r'\.(png|jpg|jpeg|gif|webp|svg)$', part, re.IGNORECASE):
+            if re.search(r'\.(png|jpg|jpeg|gif|webp|svg|pdf)$', part, re.IGNORECASE):
                 filename = '-'.join(parts[i:])
                 break
 
@@ -464,10 +464,10 @@ class TanaToObsidian:
             self.image_download_errors.append((url, str(e)))
             return None
 
-    def is_image_url(self, url: str) -> bool:
-        """Check if a URL points to an image file."""
+    def is_attachment_url(self, url: str) -> bool:
+        """Check if a URL points to an image or PDF file."""
         url_lower = url.lower()
-        return any(ext in url_lower for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'])
+        return any(ext in url_lower for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf'])
 
     def clean_node_name(self, name: str) -> str:
         """Remove HTML tags and clean up node names."""
@@ -628,7 +628,7 @@ class TanaToObsidian:
         def replace_embedded_image(match):
             """Handle !<a href="URL"></a> pattern (Tana embedded images)."""
             url = match.group(1)
-            if download_images and self.is_image_url(url):
+            if download_images and self.is_attachment_url(url):
                 filename = self.download_image(url)
                 if filename:
                     return f'![[{filename}]]'
@@ -641,7 +641,7 @@ class TanaToObsidian:
             link_text = match.group(2) if match.group(2) else ''
 
             # Check if this is an image URL
-            if self.is_image_url(url):
+            if self.is_attachment_url(url):
                 if download_images:
                     filename = self.download_image(url)
                     if filename:
@@ -755,7 +755,7 @@ class TanaToObsidian:
 
             # Check if this child is an image node (Firebase URL or has image dimensions)
             child_props = child.get('props', {})
-            is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_image_url(child_name)
+            is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_attachment_url(child_name)
             has_image_dimensions = child_props.get('_imageWidth') is not None
 
             if is_image_url_node:
@@ -822,7 +822,7 @@ class TanaToObsidian:
 
             # Check if this child is an image node (Firebase URL or has image dimensions)
             child_props = child.get('props', {})
-            is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_image_url(child_name)
+            is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_attachment_url(child_name)
             has_image_dimensions = child_props.get('_imageWidth') is not None
 
             if is_image_url_node:

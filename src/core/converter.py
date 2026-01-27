@@ -47,12 +47,6 @@ class TanaToObsidian:
         self.metanode_tags = {}  # metanode_id -> set of tag_ids
         self.node_names = {}  # node_id -> clean name (for reference resolution)
         self.day_tag_id = None
-        self.meeting_tag_id = None
-        self.note_tag_id = None
-        self.project_tag_id = None
-        self.person_tag_id = None
-        self.one_on_one_tag_id = None  # 1:1 tag (maps to meeting)
-        self.recipe_tag_id = None
         self.exported_files = {}  # node_id -> filename (without .md)
         self.used_filenames = {}  # filename -> node_id (to track duplicates)
         self.referenced_nodes = set()  # node IDs referenced in content via [[links]]
@@ -296,23 +290,9 @@ class TanaToObsidian:
                     tag_name = tag_name.split('(merged into')[0].strip()
                 self.supertags[doc['id']] = tag_name
 
-                # Track special tags
+                # Track the day tag for daily notes handling
                 if tag_name.lower() == 'day':
                     self.day_tag_id = doc['id']
-                elif tag_name.lower() == 'meeting' and not tag_name.startswith('(') and 'base type' not in tag_name.lower():
-                    # Prefer the non-system meeting tag
-                    if not self.meeting_tag_id or not doc['id'].startswith('SYS_'):
-                        self.meeting_tag_id = doc['id']
-                elif tag_name == '1:1':
-                    self.one_on_one_tag_id = doc['id']
-                elif tag_name.lower() == 'note':
-                    self.note_tag_id = doc['id']
-                elif tag_name.lower() == 'project':
-                    self.project_tag_id = doc['id']
-                elif tag_name.lower() == 'person':
-                    self.person_tag_id = doc['id']
-                elif tag_name.lower() == 'recipe':
-                    self.recipe_tag_id = doc['id']
 
         self.report_progress("Indexing", message=f"Found {len(self.supertags)} supertags")
         self.check_cancelled()
@@ -546,9 +526,6 @@ class TanaToObsidian:
                 tag_name = self.supertags[tid]
                 # Skip system tags and clean up name
                 if not tag_name.startswith('(') and tag_name:
-                    # Remap certain tags
-                    if tag_name == '1:1':
-                        tag_name = 'meeting'
                     # Make tag safe for YAML
                     safe_tag = tag_name.replace(' ', '-').lower()
                     # Remove special characters

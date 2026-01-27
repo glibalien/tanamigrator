@@ -68,8 +68,7 @@ python -m src.main
 | Tana | Obsidian |
 |------|----------|
 | Daily notes (`#day`) | Configurable folder (default: root) |
-| Nodes with `#task` tag | Configurable folder (default: root) |
-| Nodes with other supertags | Configurable folders with YAML frontmatter |
+| Nodes with supertags | Configurable folders with YAML frontmatter |
 | Inline references | `[[wikilinks]]` |
 | Date references | `[[YYYY-MM-DD]]` |
 | Firebase images | `![[Attachments/image.png]]` (folder configurable) |
@@ -91,8 +90,6 @@ Leave a folder blank to save files in the root output directory.
 Tagged nodes include frontmatter with:
 - `tags`: Supertag names
 - `Date`: Link to daily note (for nodes associated with a day)
-- `status`: Task status (open/done) for nodes with done checkbox enabled
-- `completedDate`: When task was completed
 - **Dynamic fields**: Any field values from your supertags are automatically included
   - Reference fields (options from supertag) → `[[wikilinks]]`
   - Field values that have supertags → automatically `[[wikilinks]]`

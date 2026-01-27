@@ -72,14 +72,14 @@ python -m src.main
 | Inline references | `[[wikilinks]]` |
 | Date references | `[[YYYY-MM-DD]]` |
 | Firebase images | `![[Attachments/image.png]]` (folder configurable) |
-| Bold/italic | `**bold**` / `*italic*` |
+| Referenced nodes w/o supertags | Configurable folder |
 
 ### Output Folder Configuration
 
 In Step 3, you can specify a subfolder for each selected supertag:
 - **#day** → "Daily Notes" (suggested default)
 - **#task** → "Tasks" (suggested default)
-- **#project** → "Projects" (or any custom folder)
+- **All other supertags** → User-configurable subfolders
 - **Attachments** → Where images are saved
 - **Untagged Nodes** → Where referenced nodes without supertags are saved
 

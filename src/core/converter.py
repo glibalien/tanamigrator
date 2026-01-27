@@ -349,27 +349,29 @@ class TanaToObsidian:
         self.report_progress("Indexing", message=f"Found {len(self.image_urls)} image URLs")
         self.check_cancelled()
 
-        # Build image metadata -> URL mapping for nodes with _imageWidth
+        # Build attachment metadata -> URL mapping for nodes whose metanode
+        # tuples contain a Firebase attachment URL. This covers both images
+        # (which have _imageWidth) and other attachments like PDFs.
         for doc in self.docs:
             props = doc.get('props', {})
-            if props.get('_imageWidth'):
-                meta_id = props.get('_metaNodeId')
-                if meta_id and meta_id in self.doc_map:
-                    meta = self.doc_map[meta_id]
-                    # Find tuple children that contain a Firebase URL
-                    for child_id in meta.get('children', []):
-                        if child_id in self.doc_map:
-                            child = self.doc_map[child_id]
-                            if child.get('props', {}).get('_docType') == 'tuple':
-                                # Check tuple's children for Firebase URL
-                                for tc_id in child.get('children', []):
-                                    if tc_id in self.image_urls:
-                                        self.image_metadata_urls[doc['id']] = self.image_urls[tc_id]
-                                        break
-                        if doc['id'] in self.image_metadata_urls:
-                            break
+            meta_id = props.get('_metaNodeId')
+            if not meta_id or meta_id not in self.doc_map:
+                continue
+            meta = self.doc_map[meta_id]
+            # Find tuple children that contain a Firebase URL
+            for child_id in meta.get('children', []):
+                if child_id in self.doc_map:
+                    child = self.doc_map[child_id]
+                    if child.get('props', {}).get('_docType') == 'tuple':
+                        # Check tuple's children for Firebase URL
+                        for tc_id in child.get('children', []):
+                            if tc_id in self.image_urls:
+                                self.image_metadata_urls[doc['id']] = self.image_urls[tc_id]
+                                break
+                if doc['id'] in self.image_metadata_urls:
+                    break
 
-        self.report_progress("Indexing", message=f"Mapped {len(self.image_metadata_urls)} image metadata nodes")
+        self.report_progress("Indexing", message=f"Mapped {len(self.image_metadata_urls)} attachment metadata nodes")
         self.check_cancelled()
 
         # Build node names index for reference resolution
@@ -753,21 +755,21 @@ class TanaToObsidian:
             if not child_name:
                 continue
 
-            # Check if this child is an image node (Firebase URL or has image dimensions)
+            # Check if this child is an attachment node (Firebase URL, image dimensions, or metadata URL)
             child_props = child.get('props', {})
             is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_attachment_url(child_name)
-            has_image_dimensions = child_props.get('_imageWidth') is not None
+            has_attachment_metadata = child_props.get('_imageWidth') is not None or child_id in self.image_metadata_urls
 
             if is_image_url_node:
-                # This node's name is a Firebase image URL - embed the image
+                # This node's name is a Firebase URL - embed the attachment
                 url = html.unescape(child_name.replace('&amp;', '&'))
                 filename = self.download_image(url)
                 if filename:
                     indent = '  ' * depth
                     content_lines.append(f'{indent}![[{filename}]]')
                 continue
-            elif has_image_dimensions:
-                # Image with metadata - try to find the URL through metanode mapping
+            elif has_attachment_metadata:
+                # Attachment with metadata - try to find the URL through metanode mapping
                 if child_id in self.image_metadata_urls:
                     url = self.image_metadata_urls[child_id]
                     filename = self.download_image(url)
@@ -820,20 +822,20 @@ class TanaToObsidian:
             if not child_name:
                 continue
 
-            # Check if this child is an image node (Firebase URL or has image dimensions)
+            # Check if this child is an attachment node (Firebase URL, image dimensions, or metadata URL)
             child_props = child.get('props', {})
             is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_attachment_url(child_name)
-            has_image_dimensions = child_props.get('_imageWidth') is not None
+            has_attachment_metadata = child_props.get('_imageWidth') is not None or child_id in self.image_metadata_urls
 
             if is_image_url_node:
-                # This node's name is a Firebase image URL - embed the image
+                # This node's name is a Firebase URL - embed the attachment
                 url = html.unescape(child_name.replace('&amp;', '&'))
                 filename = self.download_image(url)
                 if filename:
                     content_lines.append(f'![[{filename}]]')
                 continue
-            elif has_image_dimensions:
-                # Image with metadata - try to find the URL through metanode mapping
+            elif has_attachment_metadata:
+                # Attachment with metadata - try to find the URL through metanode mapping
                 if child_id in self.image_metadata_urls:
                     url = self.image_metadata_urls[child_id]
                     filename = self.download_image(url)

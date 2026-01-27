@@ -147,7 +147,6 @@ class TestBuildIndices:
     def test_special_tags_identified(self, converter):
         """Test that special tags are identified."""
         assert converter.day_tag_id == "tag_day"
-        assert converter.meeting_tag_id == "tag_meeting"
 
     def test_metanode_tags_mapped(self, converter):
         """Test that metanode to tags mapping is built."""

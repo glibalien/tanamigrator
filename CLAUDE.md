@@ -9,8 +9,6 @@ Tana to Obsidian Converter - A cross-platform desktop application that converts 
 ## Documentation
 
 - **README.md** - User-facing documentation, installation, and usage instructions
-- **PROJECT_SCAFFOLD.md** - Original architecture design and implementation plan
-- **CLAUDE_CODE_INSTRUCTIONS.md** - Step-by-step prompts used to build this project (historical reference)
 
 ## Quick Reference
 
@@ -48,7 +46,7 @@ src/
     └── styles.py        # Theme constants
 
 tests/
-├── test_converter.py    # 60 unit tests
+├── test_converter.py    # 57 unit tests
 └── fixtures/
     └── sample_tana_export.json
 
@@ -57,6 +55,9 @@ build/
 └── create_icons.py      # Icon generator (creates .png, .ico, .icns)
 
 assets/                  # Application icons
+pyproject.toml           # Project configuration and dependencies
+requirements.txt         # Runtime dependencies
+.github/                 # GitHub Actions workflows
 ```
 
 ## Architecture
@@ -127,16 +128,17 @@ Key features:
 - `FilePickerFrame` - File/folder selection with browse button
 - `StepIndicator` - Shows current wizard step
 - `SupertagSelectionFrame` - Scrollable supertag checkboxes with incremental loading
-- `FolderConfigFrame` - Configure output folders for each supertag
 - `GlobalOptionsFrame` - Download images checkbox
 - `ProgressFrame` - Progress bar and status
 - `LogFrame` - Scrollable log text
 - `WizardNavigationFrame` - Back/Next/Convert/Cancel buttons
+- `ActionButtonsFrame` - Action buttons for conversion step
+- `FolderConfigFrame` - Configure output folders for each supertag
 
 ## Development Notes
 
 - Python 3.11+ required
-- macOS requires `brew install python-tk@3.14` for tkinter
+- macOS requires `brew install python-tk@3.11` (or matching Python version) for tkinter
 - PyInstaller builds use `--onedir` mode on macOS, `--onefile` on Windows/Linux
 - Tests use pytest with fixtures in `tests/fixtures/`
 

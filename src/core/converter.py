@@ -46,14 +46,7 @@ class TanaToObsidian:
         self.supertags = {}  # tag_id -> tag_name
         self.metanode_tags = {}  # metanode_id -> set of tag_ids
         self.node_names = {}  # node_id -> clean name (for reference resolution)
-        self.task_tag_id = None
         self.day_tag_id = None
-        self.meeting_tag_id = None
-        self.note_tag_id = None
-        self.project_tag_id = None
-        self.person_tag_id = None
-        self.one_on_one_tag_id = None  # 1:1 tag (maps to meeting)
-        self.recipe_tag_id = None
         self.exported_files = {}  # node_id -> filename (without .md)
         self.used_filenames = {}  # filename -> node_id (to track duplicates)
         self.referenced_nodes = set()  # node IDs referenced in content via [[links]]
@@ -297,25 +290,9 @@ class TanaToObsidian:
                     tag_name = tag_name.split('(merged into')[0].strip()
                 self.supertags[doc['id']] = tag_name
 
-                # Track special tags
-                if tag_name.lower() == 'task':
-                    self.task_tag_id = doc['id']
-                elif tag_name.lower() == 'day':
+                # Track the day tag for daily notes handling
+                if tag_name.lower() == 'day':
                     self.day_tag_id = doc['id']
-                elif tag_name.lower() == 'meeting' and not tag_name.startswith('(') and 'base type' not in tag_name.lower():
-                    # Prefer the non-system meeting tag
-                    if not self.meeting_tag_id or not doc['id'].startswith('SYS_'):
-                        self.meeting_tag_id = doc['id']
-                elif tag_name == '1:1':
-                    self.one_on_one_tag_id = doc['id']
-                elif tag_name.lower() == 'note':
-                    self.note_tag_id = doc['id']
-                elif tag_name.lower() == 'project':
-                    self.project_tag_id = doc['id']
-                elif tag_name.lower() == 'person':
-                    self.person_tag_id = doc['id']
-                elif tag_name.lower() == 'recipe':
-                    self.recipe_tag_id = doc['id']
 
         self.report_progress("Indexing", message=f"Found {len(self.supertags)} supertags")
         self.check_cancelled()
@@ -549,9 +526,6 @@ class TanaToObsidian:
                 tag_name = self.supertags[tid]
                 # Skip system tags and clean up name
                 if not tag_name.startswith('(') and tag_name:
-                    # Remap certain tags
-                    if tag_name == '1:1':
-                        tag_name = 'meeting'
                     # Make tag safe for YAML
                     safe_tag = tag_name.replace(' ', '-').lower()
                     # Remove special characters
@@ -940,129 +914,19 @@ class TanaToObsidian:
                 return child
         return None
 
-    def get_task_status(self, doc: dict) -> str:
-        """Get the task status for a node.
-
-        Returns "done" if the task is complete, "open" if not, or None if not a task.
-        The done status is stored as a '_done' timestamp property on the node.
-        """
-        if not self.is_task(doc):
-            return None
-        done_timestamp = doc.get('props', {}).get('_done')
-        return "done" if done_timestamp else "open"
-
-    def get_task_completed_date(self, doc: dict) -> str:
-        """Get the completion date for a done task.
-
-        Returns date string in YYYY-MM-DD format, or None if not done or not a task.
-        The '_done' property contains the completion timestamp in milliseconds.
-        """
-        if not self.is_task(doc):
-            return None
-        done_timestamp = doc.get('props', {}).get('_done')
-        if not done_timestamp:
-            return None
-        try:
-            # Convert millisecond timestamp to date
-            dt = datetime.fromtimestamp(done_timestamp / 1000)
-            return dt.strftime('%Y-%m-%d')
-        except (ValueError, OSError, OverflowError):
-            return None
-
-    def format_timestamp_iso(self, timestamp_ms: int) -> str:
-        """Format a millisecond timestamp as ISO 8601 with timezone.
-
-        Returns format like: 2026-01-23T18:18:35.468-05:00
-        """
-        if not timestamp_ms:
-            return None
-        try:
-            # Convert milliseconds to seconds, keeping milliseconds for formatting
-            dt = datetime.fromtimestamp(timestamp_ms / 1000).astimezone()
-            # Format with milliseconds and timezone
-            # Python's %z gives +HHMM, we need +HH:MM
-            base = dt.strftime('%Y-%m-%dT%H:%M:%S')
-            millis = f'.{int(timestamp_ms % 1000):03d}'
-            tz = dt.strftime('%z')
-            # Insert colon in timezone offset (e.g., -0500 -> -05:00)
-            tz_formatted = f'{tz[:3]}:{tz[3:]}' if len(tz) == 5 else tz
-            return f'{base}{millis}{tz_formatted}'
-        except (ValueError, OSError, OverflowError):
-            return None
-
-    def get_node_created_timestamp(self, doc: dict) -> str:
-        """Get the creation timestamp for a node in ISO 8601 format."""
-        created = doc.get('props', {}).get('created')
-        if created:
-            return self.format_timestamp_iso(created)
-        return None
-
-    def get_node_modified_timestamp(self, doc: dict) -> str:
-        """Get the last modified timestamp for a node in ISO 8601 format.
-
-        modifiedTs can be a list or dict of timestamps - we take the max value.
-        """
-        modified_ts = doc.get('modifiedTs')
-        if not modified_ts:
-            # Fall back to created timestamp if no modifiedTs
-            return self.get_node_created_timestamp(doc)
-
-        try:
-            if isinstance(modified_ts, list):
-                # Filter out zeros and get max
-                timestamps = [t for t in modified_ts if t and t > 0]
-                if timestamps:
-                    return self.format_timestamp_iso(max(timestamps))
-            elif isinstance(modified_ts, dict):
-                timestamps = [v for v in modified_ts.values() if v and v > 0]
-                if timestamps:
-                    return self.format_timestamp_iso(max(timestamps))
-            elif isinstance(modified_ts, str):
-                # Sometimes stored as JSON string
-                parsed = json.loads(modified_ts)
-                if isinstance(parsed, dict):
-                    timestamps = [v for v in parsed.values() if v and v > 0]
-                    if timestamps:
-                        return self.format_timestamp_iso(max(timestamps))
-        except (ValueError, TypeError, json.JSONDecodeError):
-            pass
-
-        # Fall back to created timestamp
-        return self.get_node_created_timestamp(doc)
-
     def create_frontmatter(self, tags: list, doc: dict = None, daily_date: str = None) -> str:
-        """Create YAML frontmatter with tags, date, task status, and dynamic field values."""
-        task_status = None
-        completed_date = None
-        date_created = None
-        date_modified = None
+        """Create YAML frontmatter with tags, date, and dynamic field values."""
         dynamic_fields = {}
 
         if doc:
-            task_status = self.get_task_status(doc)
-            completed_date = self.get_task_completed_date(doc)
-            if task_status:
-                date_created = self.get_node_created_timestamp(doc)
-                date_modified = self.get_node_modified_timestamp(doc)
             # Get dynamic field values from configured supertag fields
             node_id = doc.get('id', '')
             dynamic_fields = self.get_all_field_values(node_id)
 
-        if not tags and not daily_date and not task_status and not dynamic_fields:
+        if not tags and not daily_date and not dynamic_fields:
             return ''
 
         lines = ['---']
-        if task_status:
-            lines.append(f'status: {task_status}')
-            lines.append('priority: normal')
-            if daily_date:
-                lines.append(f'scheduled: {daily_date}')
-        if completed_date:
-            lines.append(f'completedDate: {completed_date}')
-        if date_created:
-            lines.append(f'dateCreated: {date_created}')
-        if date_modified:
-            lines.append(f'dateModified: {date_modified}')
         if tags:
             lines.append('tags:')
             for tag in tags:
@@ -1072,10 +936,6 @@ class TanaToObsidian:
 
         # Add dynamic field values from configured supertag fields
         for field_name, field_value in dynamic_fields.items():
-            # Skip status if we've already added task status above
-            if field_name.lower() == 'status' and task_status:
-                continue
-            # Format the value for YAML
             lines.append(self._format_frontmatter_field(field_name, field_value))
 
         lines.append('---')
@@ -1119,25 +979,12 @@ class TanaToObsidian:
             return f'{field_name}: {val_str}'
 
     def create_merged_frontmatter(self, tags: set, dynamic_fields: dict,
-                                   earliest_date: str = None, task_status: str = None,
-                                   completed_date: str = None, date_created: str = None,
-                                   date_modified: str = None) -> str:
+                                   earliest_date: str = None) -> str:
         """Create YAML frontmatter from aggregated/merged data."""
-        if not tags and not dynamic_fields and not earliest_date and not task_status:
+        if not tags and not dynamic_fields and not earliest_date:
             return ''
 
         lines = ['---']
-        if task_status:
-            lines.append(f'status: {task_status}')
-            lines.append('priority: normal')
-            if earliest_date:
-                lines.append(f'scheduled: {earliest_date}')
-        if completed_date:
-            lines.append(f'completedDate: {completed_date}')
-        if date_created:
-            lines.append(f'dateCreated: {date_created}')
-        if date_modified:
-            lines.append(f'dateModified: {date_modified}')
         if tags:
             lines.append('tags:')
             for tag in sorted(tags):
@@ -1147,9 +994,6 @@ class TanaToObsidian:
 
         # Add dynamic field values
         for field_name, field_values in sorted(dynamic_fields.items()):
-            # Skip status if we've already added task status above
-            if field_name.lower() == 'status' and task_status:
-                continue
             # Convert set to sorted list for consistent output
             if isinstance(field_values, set):
                 field_values = sorted(field_values)
@@ -1180,12 +1024,6 @@ class TanaToObsidian:
             all_dynamic_fields = {}  # field_name -> set of values
             earliest_date = None
             folder = entries[0][2]  # Use folder from first entry
-            # For task status: track if any task is done and if any is a task
-            has_task = False
-            all_done = True
-            latest_completed_date = None
-            earliest_created = None
-            latest_modified = None
 
             for date, doc, _ in entries:
                 all_tags.update(self.get_node_tags(doc))
@@ -1206,41 +1044,10 @@ class TanaToObsidian:
 
                 if date and (not earliest_date or date < earliest_date):
                     earliest_date = date
-                # Check task status
-                if self.is_task(doc):
-                    has_task = True
-                    done_timestamp = doc.get('props', {}).get('_done')
-                    if not done_timestamp:
-                        all_done = False
-                    else:
-                        # Track the most recent completion date
-                        comp_date = self.get_task_completed_date(doc)
-                        if comp_date and (not latest_completed_date or comp_date > latest_completed_date):
-                            latest_completed_date = comp_date
-                    # Track earliest created and latest modified timestamps
-                    created_ts = self.get_node_created_timestamp(doc)
-                    if created_ts and (not earliest_created or created_ts < earliest_created):
-                        earliest_created = created_ts
-                    modified_ts = self.get_node_modified_timestamp(doc)
-                    if modified_ts and (not latest_modified or modified_ts > latest_modified):
-                        latest_modified = modified_ts
-
-            # Determine merged task status (done only if ALL constituent tasks are done)
-            task_status = None
-            completed_date = None
-            date_created = None
-            date_modified = None
-            if has_task:
-                task_status = "done" if all_done else "open"
-                if all_done:
-                    completed_date = latest_completed_date
-                date_created = earliest_created
-                date_modified = latest_modified
 
             # Build frontmatter
             frontmatter = self.create_merged_frontmatter(
-                all_tags, all_dynamic_fields, earliest_date, task_status, completed_date,
-                date_created, date_modified
+                all_tags, all_dynamic_fields, earliest_date
             )
 
             # Build content
@@ -1298,12 +1105,6 @@ class TanaToObsidian:
                 return True
 
         return False
-
-    def is_task(self, doc: dict) -> bool:
-        """Check if a node is tagged as a task."""
-        if not self.task_tag_id:
-            return False
-        return self.has_tag(doc, self.task_tag_id)
 
     def should_skip_doc(self, doc: dict) -> bool:
         """Check if a document should be completely skipped."""

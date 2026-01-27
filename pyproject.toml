@@ -1,6 +1,6 @@
 [project]
 name = "tana-to-obsidian"
-version = "3.1.0"
+version = "3.1.1"
 description = "Convert Tana exports to Obsidian markdown"
 requires-python = ">=3.11"
 dependencies = [

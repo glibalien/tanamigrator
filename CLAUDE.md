@@ -4,7 +4,7 @@ This file provides context for Claude Code when working on this project.
 
 ## Project Overview
 
-Tana to Obsidian Converter - A cross-platform desktop application that converts Tana JSON exports to Obsidian-compatible markdown files. Features a wizard-based interface with automatic supertag discovery, dynamic field mapping, and configurable output folders.
+Tana to Obsidian Converter - A cross-platform desktop application that converts Tana JSON exports to Obsidian-compatible markdown files. Features a wizard-based interface with automatic supertag discovery, dynamic field mapping, configurable output folders, and an "Export Everything" mode for complete workspace export.
 
 ## Documentation
 
@@ -70,11 +70,16 @@ The `TanaExportScanner` class discovers supertags and their fields from the Tana
 - Identifies field data types: checkbox, date, options, number, url, email, plain
 - Extracts option values for "options" type fields
 - Filters out system/internal supertags and trashed items
+- Discovers Library containers (`*_STASH` nodes) for Export Everything mode
 - Runs in background thread with progress callback
 
 Key classes returned:
 - `SupertagInfo` - id, name, instance_count, fields, is_system, special_type
 - `FieldInfo` - id, name, field_type, data_type, source_supertag_id/name, options
+
+Library node methods (for Export Everything mode):
+- `get_library_container_ids()` - Find all `*_STASH` nodes
+- `get_library_node_count()` - Count nodes in Library containers
 
 ### Converter (`src/core/converter.py`)
 
@@ -98,6 +103,13 @@ Conversion phases:
 3. Orphan tagged nodes (not under daily notes)
 4. Write merged files (same-named nodes merged)
 5. Referenced untagged nodes (if enabled)
+6. Library nodes (Export Everything mode only)
+
+Export Everything mode behavior:
+- Exports all supertags and Library nodes without manual selection
+- Ancestry tracking prevents child nodes from becoming separate files
+- `#day` nodes always export as Daily Notes (even when under `#week`/`#year`)
+- Library nodes (from `*_STASH` containers) exported to configurable folder
 
 ### Models (`src/core/models.py`)
 
@@ -106,15 +118,15 @@ Key data classes:
 - `SupertagInfo` - Discovered supertag with fields
 - `FieldMapping` - User config for field → frontmatter mapping
 - `SupertagConfig` - User config for supertag conversion (includes output_folder)
-- `ConversionSettings` - All conversion options (includes attachments_folder, untagged_library_folder)
-- `ConversionProgress` / `ConversionResult` - Progress and result reporting
+- `ConversionSettings` - All conversion options (includes attachments_folder, untagged_library_folder, library_folder, export_everything)
+- `ConversionProgress` / `ConversionResult` - Progress and result reporting (includes library_nodes_count)
 
 ### GUI (`src/gui/app.py`)
 
 3-step wizard interface using CustomTkinter:
-1. **Select File** - Choose JSON export, option to ignore trash, background scanning with progress
-2. **Select Supertags** - Check supertags to include, shows instance counts, library nodes option, incremental loading
-3. **Configure and Convert** - Output directory, folder configuration per supertag, attachments folder, scrollable content, progress log
+1. **Select File** - Choose JSON export, option to ignore trash, "Export Everything" button for quick export, background scanning with progress
+2. **Select Supertags** - Check supertags to include, shows instance counts, library nodes option, incremental loading (skipped in Export Everything mode)
+3. **Configure and Convert** - Output directory, folder configuration per supertag, attachments folder, Library folder (Export Everything mode), scrollable content, progress log
 
 Key features:
 - Background thread for JSON scanning

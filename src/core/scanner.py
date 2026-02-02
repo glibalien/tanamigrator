@@ -490,3 +490,29 @@ class TanaExportScanner:
             if meta_id and supertag_id in self.metanode_tags.get(meta_id, set()):
                 instances.append(doc)
         return instances
+
+    def get_library_container_ids(self) -> List[str]:
+        """Find all *_STASH nodes (Library containers).
+
+        In Tana, the "Library" is stored in nodes with IDs ending in _STASH.
+        """
+        return [doc['id'] for doc in self.docs if doc['id'].endswith('_STASH')]
+
+    def get_library_node_count(self) -> int:
+        """Count total nodes in all Library containers.
+
+        Used for UI display of how many Library nodes exist.
+        """
+        count = 0
+        for stash_id in self.get_library_container_ids():
+            stash_doc = self.doc_map.get(stash_id)
+            if stash_doc:
+                children = stash_doc.get('children', [])
+                # Only count valid, non-trash children
+                for child_id in children:
+                    child = self.doc_map.get(child_id)
+                    if child and not self._is_in_trash(child):
+                        name = child.get('props', {}).get('name', '')
+                        if name:
+                            count += 1
+        return count

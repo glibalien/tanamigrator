@@ -47,6 +47,13 @@ class FilePickerFrame(ctk.CTkFrame):
         )
         self.button.grid(row=0, column=2, padx=(5, 10), pady=8)
 
+    def _set_entry_text(self, text: str):
+        """Update the readonly entry's text."""
+        self.entry.configure(state="normal")
+        self.entry.delete(0, "end")
+        self.entry.insert(0, text)
+        self.entry.configure(state="readonly")
+
     def _browse(self):
         """Open file/folder dialog and update the entry."""
         if self.is_directory:
@@ -59,10 +66,7 @@ class FilePickerFrame(ctk.CTkFrame):
 
         if path:
             self.selected_path = Path(path)
-            self.entry.configure(state="normal")
-            self.entry.delete(0, "end")
-            self.entry.insert(0, str(self.selected_path))
-            self.entry.configure(state="readonly")
+            self._set_entry_text(str(self.selected_path))
 
             if self.on_change:
                 self.on_change(self.selected_path)
@@ -74,10 +78,7 @@ class FilePickerFrame(ctk.CTkFrame):
     def set_path(self, path: Path):
         """Programmatically set the path."""
         self.selected_path = path
-        self.entry.configure(state="normal")
-        self.entry.delete(0, "end")
-        self.entry.insert(0, str(path))
-        self.entry.configure(state="readonly")
+        self._set_entry_text(str(path))
 
 
 class StepIndicator(ctk.CTkFrame):
@@ -490,72 +491,34 @@ class WizardNavigationFrame(ctk.CTkFrame):
 
     def set_step(self, step: int, total_steps: int, is_converting: bool = False):
         """Update button states based on current step."""
-        # Back button
-        if step == 0 or is_converting:
-            self.back_button.configure(state="disabled")
-        else:
-            self.back_button.configure(state="normal")
+        is_first_step = step == 0
+        is_last_step = step >= total_steps - 1
 
-        # Next button
-        if step >= total_steps - 1 or is_converting:
+        # Back button - disabled on first step or while converting
+        self.back_button.configure(
+            state="disabled" if is_first_step or is_converting else "normal"
+        )
+
+        # Next button - hidden on last step or while converting
+        if is_last_step or is_converting:
             self.next_button.pack_forget()
         else:
             self.next_button.pack(side="right", padx=10, pady=12)
             self.next_button.configure(state="normal")
 
-        # Convert button
-        if step == total_steps - 1 and not is_converting:
+        # Convert button - shown on last step
+        if is_last_step:
             self.convert_button.pack(side="right", padx=(10, 15), pady=12)
-            self.convert_button.configure(state="normal")
-        elif is_converting:
-            self.convert_button.pack(side="right", padx=(10, 15), pady=12)
-            self.convert_button.configure(state="disabled")
+            self.convert_button.configure(
+                state="disabled" if is_converting else "normal"
+            )
         else:
             self.convert_button.pack_forget()
 
-        # Cancel button
-        if is_converting:
-            self.cancel_button.configure(state="normal")
-        else:
-            self.cancel_button.configure(state="disabled")
-
-
-class ActionButtonsFrame(ctk.CTkFrame):
-    """Legacy action buttons - for backward compatibility."""
-
-    def __init__(
-        self,
-        parent,
-        on_convert: Callable,
-        on_cancel: Callable,
-        **kwargs
-    ):
-        super().__init__(parent, **kwargs)
-
-        self.convert_button = ctk.CTkButton(
-            self,
-            text="Convert",
-            width=150,
-            command=on_convert
+        # Cancel button - only enabled while converting
+        self.cancel_button.configure(
+            state="normal" if is_converting else "disabled"
         )
-        self.convert_button.pack(side="left", padx=(15, 10), pady=12)
-
-        self.cancel_button = ctk.CTkButton(
-            self,
-            text="Cancel",
-            width=150,
-            command=on_cancel,
-            state="disabled"
-        )
-        self.cancel_button.pack(side="left", padx=10, pady=12)
-
-    def set_converting(self, is_converting: bool):
-        if is_converting:
-            self.convert_button.configure(state="disabled")
-            self.cancel_button.configure(state="normal")
-        else:
-            self.convert_button.configure(state="normal")
-            self.cancel_button.configure(state="disabled")
 
 
 class FolderConfigFrame(ctk.CTkFrame):

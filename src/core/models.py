@@ -62,6 +62,10 @@ class ConversionSettings:
     include_library_nodes: bool = True  # Include referenced nodes without supertags
     attachments_folder: str = "Attachments"  # Subfolder for images/attachments
     untagged_library_folder: str = ""  # Subfolder for untagged library nodes (empty = root)
+    library_folder: str = ""  # Subfolder for Library nodes in export_everything mode
+
+    # Export Everything mode
+    export_everything: bool = False  # When True, exports all supertags and Library nodes
 
 
 @dataclass
@@ -82,6 +86,7 @@ class ConversionResult:
     tagged_nodes_count: int = 0
     orphan_nodes_count: int = 0
     referenced_nodes_count: int = 0
+    library_nodes_count: int = 0  # Library nodes exported in export_everything mode
     images_downloaded: int = 0
     image_errors: List[tuple] = field(default_factory=list)
     files_written: int = 0

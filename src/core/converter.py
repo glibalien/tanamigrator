@@ -69,6 +69,14 @@ class TanaToObsidian:
                     # Store folder path (empty string means root)
                     self.supertag_folders[config.supertag_id] = config.output_folder
 
+        # Export Everything mode: track nodes whose parent is being exported
+        # (to prevent creating separate files for child nodes)
+        self.nodes_with_exported_ancestor: Set[str] = set()
+
+        # Week and Year tag IDs (for exception handling in export-everything mode)
+        self.week_tag_id: Optional[str] = None
+        self.year_tag_id: Optional[str] = None
+
         # General field value index for dynamic frontmatter
         self.node_field_values: Dict[str, Dict[str, List[str]]] = {}
 
@@ -326,8 +334,13 @@ class TanaToObsidian:
                     tag_name = tag_name.split('(merged into')[0].strip()
                 self.supertags[doc['id']] = tag_name
 
-                if tag_name.lower() == 'day':
+                tag_lower = tag_name.lower()
+                if tag_lower == 'day':
                     self.day_tag_id = doc['id']
+                elif tag_lower == 'week':
+                    self.week_tag_id = doc['id']
+                elif tag_lower == 'year':
+                    self.year_tag_id = doc['id']
 
         self.report_progress("Indexing", message=f"Found {len(self.supertags)} supertags")
 
@@ -418,6 +431,71 @@ class TanaToObsidian:
                 self.node_names[doc['id']] = self.clean_node_name(name)
 
         self.report_progress("Indexing", message="Indexing complete")
+
+    def _mark_descendants_as_having_exported_ancestor(self, doc: dict, visited: Set[str] = None):
+        """Mark all descendants of a node as having an exported ancestor.
+
+        This prevents child nodes from getting their own .md files when
+        their parent is already being exported (in export_everything mode).
+
+        Exception: #day nodes are never marked, as they always get separate files.
+        """
+        if not self.settings.export_everything:
+            return
+
+        if visited is None:
+            visited = set()
+
+        doc_id = doc.get('id', '')
+        if doc_id in visited:
+            return
+        visited.add(doc_id)
+
+        for child_id in doc.get('children', []):
+            child = self.doc_map.get(child_id)
+            if not child:
+                continue
+
+            # Exception: Never mark #day nodes - they always get separate files
+            if self.day_tag_id and self.has_tag(child, self.day_tag_id):
+                continue
+
+            self.nodes_with_exported_ancestor.add(child_id)
+            self._mark_descendants_as_having_exported_ancestor(child, visited)
+
+    def _should_create_separate_file(self, doc: dict) -> bool:
+        """Determine if a node should get its own .md file.
+
+        In export_everything mode, child nodes of an exported parent should
+        NOT get separate files - their content is inlined in the parent.
+
+        Exception: #day nodes ALWAYS get separate files (as Daily Notes),
+        even when they're children of #week or #year nodes.
+        """
+        if not self.settings.export_everything:
+            return True  # Normal mode: all tagged nodes get files
+
+        doc_id = doc.get('id', '')
+
+        # Daily notes ALWAYS get separate files
+        if self.day_tag_id and self.has_tag(doc, self.day_tag_id):
+            return True
+
+        # Don't create separate file if parent is already being exported
+        if doc_id in self.nodes_with_exported_ancestor:
+            return False
+
+        return True
+
+    def _get_library_container_ids(self) -> List[str]:
+        """Find all *_STASH nodes (Library containers)."""
+        return [doc['id'] for doc in self.docs if doc['id'].endswith('_STASH')]
+
+    def _get_library_output_folder(self) -> Path:
+        """Get the output folder for Library nodes."""
+        if self.settings.library_folder:
+            return self.output_dir / self.settings.library_folder
+        return self.output_dir
 
     def build_indices(self):
         """Build lookup indices for supertags, metanodes, etc."""
@@ -879,6 +957,18 @@ class TanaToObsidian:
 
             # Check if this child has a supertag
             if self.has_supertag(child):
+                # In export_everything mode, check if parent is already exported
+                if not self._should_create_separate_file(child):
+                    # Render inline instead of creating separate file
+                    converted = self.convert_references(child_name)
+                    if converted:
+                        content_lines.append(f'- {converted}')
+                        inline_visited = {doc.get('id')}
+                        child_content = self.get_inline_content(child, depth=1, visited=inline_visited)
+                        if child_content:
+                            content_lines.append(child_content)
+                    continue
+
                 visited.add(child_id)
                 # This node should be a separate file - add a reference
                 clean_name = self.clean_node_name(child_name)
@@ -896,6 +986,9 @@ class TanaToObsidian:
 
                 # Queue this node for merging
                 tagged_nodes_to_export.append((child, base_filename, daily_date))
+
+                # Mark descendants so they won't get separate files
+                self._mark_descendants_as_having_exported_ancestor(child)
             else:
                 # No supertag - inline as bullet list
                 converted = self.convert_references(child_name)
@@ -1428,11 +1521,18 @@ class TanaToObsidian:
 
         tagged_count = 0
         for node, filename, daily_date in all_tagged_nodes:
+            # In export_everything mode, skip if parent is already exported
+            if not self._should_create_separate_file(node):
+                continue
+
             folder = self._get_node_output_folder(node)
 
             if filename not in self.pending_merges:
                 self.pending_merges[filename] = []
             self.pending_merges[filename].append((daily_date, node, folder))
+
+            # Mark descendants so they won't get separate files
+            self._mark_descendants_as_having_exported_ancestor(node)
             tagged_count += 1
 
             if tagged_count % 100 == 0:
@@ -1466,6 +1566,10 @@ class TanaToObsidian:
             if not self.has_supertag(doc):
                 continue
 
+            # In export_everything mode, skip if parent is already exported
+            if not self._should_create_separate_file(doc):
+                continue
+
             name = doc.get('props', {}).get('name', '')
             clean_name = self.clean_node_name(name)
 
@@ -1481,6 +1585,9 @@ class TanaToObsidian:
             if base_filename not in self.pending_merges:
                 self.pending_merges[base_filename] = []
             self.pending_merges[base_filename].append((daily_date, doc, folder))
+
+            # Mark descendants so they won't get separate files
+            self._mark_descendants_as_having_exported_ancestor(doc)
             orphan_count += 1
 
         self.report_progress("Orphan Nodes", orphan_count, orphan_count,
@@ -1552,6 +1659,74 @@ class TanaToObsidian:
                              f"Created {referenced_count} files for referenced nodes")
         return referenced_count
 
+    def _phase_export_library_nodes(self) -> int:
+        """Phase 6: Export Library nodes (only in export_everything mode).
+
+        Library nodes are direct children of *_STASH containers in Tana.
+        This exports nodes that haven't already been exported and don't
+        have an exported ancestor.
+
+        Returns:
+            int: Number of Library node files created
+        """
+        if not self.settings.export_everything:
+            return 0
+
+        self.report_progress("Library Nodes", 0, 0, "Exporting Library nodes...")
+        self.check_cancelled()
+
+        library_count = 0
+        library_folder = self._get_library_output_folder()
+
+        for stash_id in self._get_library_container_ids():
+            stash_doc = self.doc_map.get(stash_id)
+            if not stash_doc:
+                continue
+
+            children = stash_doc.get('children', [])
+            for idx, child_id in enumerate(children):
+                self.check_cancelled()
+
+                if idx % 50 == 0:
+                    self.report_progress("Library Nodes", library_count, len(children),
+                                         f"Processing Library nodes...")
+
+                # Skip if already exported
+                if child_id in self.exported_files:
+                    continue
+
+                child = self.doc_map.get(child_id)
+                if not child or self.should_skip_doc(child):
+                    continue
+
+                # Skip if this node shouldn't get a separate file
+                if not self._should_create_separate_file(child):
+                    continue
+
+                name = child.get('props', {}).get('name', '')
+                clean_name = self.clean_node_name(name)
+                if not clean_name:
+                    continue
+
+                filename = self.sanitize_filename(clean_name)
+                self.exported_files[child_id] = filename
+
+                # Mark descendants so they won't get separate files
+                self._mark_descendants_as_having_exported_ancestor(child)
+
+                node_date = self.get_node_created_date(child)
+
+                # Add to pending merges (in case of duplicate names)
+                if filename not in self.pending_merges:
+                    self.pending_merges[filename] = []
+                self.pending_merges[filename].append((node_date, child, library_folder))
+
+                library_count += 1
+
+        self.report_progress("Library Nodes", library_count, library_count,
+                             f"Processed {library_count} Library nodes")
+        return library_count
+
     def run(self) -> ConversionResult:
         """Main export process with progress reporting."""
         try:
@@ -1575,13 +1750,16 @@ class TanaToObsidian:
             # Phase 3: Find orphan tagged nodes
             orphan_count = self._phase_find_orphan_nodes()
 
-            # Phase 4: Write all merged files
+            # Phase 4: Export Library nodes (only in export_everything mode)
+            library_count = self._phase_export_library_nodes()
+
+            # Phase 5: Write all merged files
             self.report_progress("Writing", 0, len(self.pending_merges),
                                  f"Writing {len(self.pending_merges)} merged files...")
             self.check_cancelled()
             single_count, merged_count = self.write_merged_files()
 
-            # Phase 5: Create files for referenced nodes
+            # Phase 6: Create files for referenced nodes
             referenced_count = self._phase_create_referenced_node_files()
 
             # Calculate totals
@@ -1597,6 +1775,7 @@ class TanaToObsidian:
                 tagged_nodes_count=tagged_count,
                 orphan_nodes_count=orphan_count,
                 referenced_nodes_count=referenced_count,
+                library_nodes_count=library_count,
                 images_downloaded=len(self.downloaded_images),
                 image_errors=self.image_download_errors.copy(),
                 files_written=total_files_written,

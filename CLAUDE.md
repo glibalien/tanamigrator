@@ -173,3 +173,121 @@ Key features:
 3. Add getter method in `FolderConfigFrame`
 4. Pass to `ConversionSettings` in `_start_conversion()` in `src/gui/app.py`
 5. Use in converter (e.g., `self.settings.new_folder`)
+
+
+---
+
+## Development Workflow
+
+When adding features or making non-trivial changes, follow this process:
+
+### 1. Planning Phase
+
+Before writing code, enter planning mode:
+- Describe the feature requirements and constraints
+- Identify affected files and potential side effects
+- Create a GitHub issue with:
+  - Clear description of the feature
+  - Implementation approach
+  - Success criteria (specific, testable)
+  - Testing/validation steps
+
+Example issue template:
+```markdown
+## Description
+[What and why]
+
+## Implementation Approach
+[How - files to modify, new functions, etc.]
+
+## Success Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Testing
+- [ ] Test case 1
+- [ ] Test case 2
+```
+
+### 2. Implementation Phase
+
+```bash
+# Create feature branch
+git checkout -b feature/description
+
+# Do the work...
+
+# Validate against success criteria
+# Run tests if applicable
+
+# Self-review before marking complete
+```
+
+**Before considering implementation complete, verify:**
+- [ ] Meets all success criteria from the issue
+- [ ] Separation of concerns (no god functions)
+- [ ] DRY - no duplicated logic
+- [ ] Clean, idiomatic Python
+- [ ] Functions are focused and under ~50 lines
+- [ ] Error handling is appropriate
+- [ ] Logging is useful but not excessive
+
+If criteria are not met, continue iterating in the feature branch.
+
+### 3. Merge Phase
+
+Only after all criteria are met:
+
+```bash
+git checkout main
+git merge feature/description
+git push
+# Close the GitHub issue
+```
+
+**Never commit directly to main for non-trivial changes.**
+
+---
+
+## Coding Standards
+
+### Structure
+- **No god functions**: Break large functions into smaller, focused ones
+- **DRY**: Extract repeated logic into helper functions
+- **Single responsibility**: Each function does one thing well
+- **Max function length**: ~50 lines (guideline, not hard rule)
+
+### Style
+- **Clear naming**: Functions and variables should be self-documenting
+- **Type hints**: Use them for function signatures
+- **Docstrings**: Required for any function that isn't immediately obvious
+- **Imports**: Standard library → third-party → local (separated by blank lines)
+
+### Error Handling
+- Fail gracefully with useful error messages
+- Don't swallow exceptions silently
+- Log errors appropriately
+
+### Example
+
+```python
+# Good
+def get_vault_notes(vault_path: Path, excluded_dirs: set[str]) -> set[str]:
+    """Return set of note names (without .md extension) from vault."""
+    notes = set()
+    for md_file in vault_path.rglob("*.md"):
+        if any(excluded in md_file.parts for excluded in excluded_dirs):
+            continue
+        notes.add(md_file.stem)
+    return notes
+
+# Bad
+def process(p):  # unclear name, no types, no docstring
+    n = set()
+    for f in p.rglob("*.md"):
+        if '.venv' in str(f) or '.chroma_db' in str(f) or '.trash' in str(f):  # duplicated logic
+            continue
+        n.add(f.stem)
+    return n
+```
+

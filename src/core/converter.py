@@ -18,7 +18,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 from .models import ConversionSettings, ConversionProgress, ConversionResult, FieldInfo
@@ -32,36 +32,36 @@ class TanaToObsidian:
         progress_callback: Optional[Callable[[ConversionProgress], None]] = None,
         cancel_event: Optional[threading.Event] = None
     ):
-        self.settings = settings
-        self.progress_callback = progress_callback
-        self.cancel_event = cancel_event
+        self.settings: ConversionSettings = settings
+        self.progress_callback: Optional[Callable[[ConversionProgress], None]] = progress_callback
+        self.cancel_event: Optional[threading.Event] = cancel_event
 
         # Initialize from settings
-        self.json_path = settings.json_path
-        self.output_dir = Path(settings.output_dir)
+        self.json_path: Path = settings.json_path
+        self.output_dir: Path = Path(settings.output_dir)
 
         # Internal state
-        self.docs = []
-        self.doc_map = {}
-        self.supertags = {}  # tag_id -> tag_name
-        self.metanode_tags = {}  # metanode_id -> set of tag_ids
-        self.node_names = {}  # node_id -> clean name (for reference resolution)
-        self.day_tag_id = None
-        self.exported_files = {}  # node_id -> filename (without .md)
-        self.used_filenames = {}  # filename -> node_id (to track duplicates)
-        self.referenced_nodes = set()  # node IDs referenced in content via [[links]]
-        self.pending_merges = {}  # base_filename -> list of (date, doc, folder)
+        self.docs: List[Dict[str, Any]] = []
+        self.doc_map: Dict[str, Dict[str, Any]] = {}
+        self.supertags: Dict[str, str] = {}  # tag_id -> tag_name
+        self.metanode_tags: Dict[str, Set[str]] = {}  # metanode_id -> set of tag_ids
+        self.node_names: Dict[str, str] = {}  # node_id -> clean name
+        self.day_tag_id: Optional[str] = None
+        self.exported_files: Dict[str, str] = {}  # node_id -> filename (without .md)
+        self.used_filenames: Dict[str, str] = {}  # filename -> node_id
+        self.referenced_nodes: Set[str] = set()  # node IDs referenced via [[links]]
+        self.pending_merges: Dict[str, List[Tuple[str, Dict, Path]]] = {}
 
         # Image handling
-        self.attachments_dir = self.output_dir / settings.attachments_folder
-        self.downloaded_images = {}  # url -> local filename
-        self.image_download_errors = []  # track failed downloads
-        self.image_urls = {}  # node_id -> firebase_url
-        self.image_metadata_urls = {}  # node_id -> firebase_url
+        self.attachments_dir: Path = self.output_dir / settings.attachments_folder
+        self.downloaded_images: Dict[str, str] = {}  # url -> local filename
+        self.image_download_errors: List[str] = []  # track failed downloads
+        self.image_urls: Dict[str, str] = {}  # node_id -> firebase_url
+        self.image_metadata_urls: Dict[str, str] = {}  # node_id -> firebase_url
 
-        # Selected supertags filter and folder mappings (from wizard selection)
-        self.selected_supertag_ids = set()
-        self.supertag_folders = {}  # supertag_id -> folder path (relative to output_dir)
+        # Selected supertags filter and folder mappings
+        self.selected_supertag_ids: Set[str] = set()
+        self.supertag_folders: Dict[str, str] = {}  # supertag_id -> folder path
         if settings.supertag_configs:
             for config in settings.supertag_configs:
                 if config.include:
@@ -70,11 +70,10 @@ class TanaToObsidian:
                     self.supertag_folders[config.supertag_id] = config.output_folder
 
         # General field value index for dynamic frontmatter
-        # node_id -> {field_id: [value_node_ids]}
-        self.node_field_values = {}
+        self.node_field_values: Dict[str, Dict[str, List[str]]] = {}
 
         # Build field_id -> field_info lookup from supertag_configs
-        self.field_info_map = {}  # field_id -> FieldInfo (from supertag_configs)
+        self.field_info_map: Dict[str, Dict[str, Any]] = {}
         self._build_field_info_map()
 
     def _build_field_info_map(self):
@@ -92,6 +91,47 @@ class TanaToObsidian:
                         'frontmatter_name': mapping.frontmatter_name,
                         'transform': mapping.transform,
                     }
+
+    def _resolve_node_name(self, node_id: str) -> str:
+        """Resolve a node's clean name, with fallback to doc_map lookup."""
+        target_name = self.node_names.get(node_id, '')
+        if not target_name and node_id in self.doc_map:
+            raw_name = self.doc_map[node_id].get('props', {}).get('name', '')
+            target_name = self.clean_node_name(raw_name)
+        return target_name
+
+    def _is_attachment_node(self, child_props: dict, child_name: str, child_id: str) -> tuple:
+        """Check if a node is an attachment node.
+
+        Returns:
+            tuple: (is_image_url_node, has_attachment_metadata)
+        """
+        is_image_url_node = (
+            'firebasestorage.googleapis.com' in child_name and
+            self.is_attachment_url(child_name)
+        )
+        has_attachment_metadata = (
+            child_props.get('_imageWidth') is not None or
+            child_id in self.image_metadata_urls
+        )
+        return is_image_url_node, has_attachment_metadata
+
+    def _get_attachment_embed(self, url: str) -> str:
+        """Download an attachment and return the embed text.
+
+        Returns:
+            str: The embed text (e.g., '![[filename]]') or empty string on failure
+        """
+        filename = self.download_image(url)
+        if filename:
+            return f'![[{filename}]]'
+        return ''
+
+    def _write_markdown_file(self, path: Path, content_parts: list):
+        """Write a markdown file with the given content parts."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(content_parts))
 
     def _get_node_output_folder(self, doc: dict) -> Path:
         """Get the output folder for a node based on its supertags.
@@ -277,27 +317,22 @@ class TanaToObsidian:
         self.doc_map = {d['id']: d for d in self.docs}
         self.report_progress("Loading", message=f"Loaded {len(self.docs)} documents")
 
-    def build_indices(self):
-        """Build lookup indices for supertags, metanodes, etc."""
-        self.report_progress("Indexing", message="Building indices...")
-
-        # Build supertag index
+    def _build_supertag_index(self):
+        """Build supertag ID -> name index."""
         for doc in self.docs:
             if doc.get('props', {}).get('_docType') == 'tagDef':
                 tag_name = doc.get('props', {}).get('name', '')
-                # Clean up merged tag names
                 if '(merged into' in tag_name:
                     tag_name = tag_name.split('(merged into')[0].strip()
                 self.supertags[doc['id']] = tag_name
 
-                # Track the day tag for daily notes handling
                 if tag_name.lower() == 'day':
                     self.day_tag_id = doc['id']
 
         self.report_progress("Indexing", message=f"Found {len(self.supertags)} supertags")
-        self.check_cancelled()
 
-        # Build metanode -> tags mapping via tuples
+    def _build_metanode_tags_index(self):
+        """Build metanode -> tags mapping via tuples."""
         for doc in self.docs:
             if doc.get('props', {}).get('_docType') == 'tuple':
                 children = doc.get('children', [])
@@ -309,79 +344,101 @@ class TanaToObsidian:
                         if cid in self.supertags:
                             self.metanode_tags[owner_id].add(cid)
 
-        self.report_progress("Indexing", message=f"Built metanode->tags map with {len(self.metanode_tags)} entries")
-        self.check_cancelled()
+        self.report_progress("Indexing",
+                             message=f"Built metanode->tags map with {len(self.metanode_tags)} entries")
 
-        # Build general field value index for configured fields
-        # This indexes all field values for nodes, keyed by field_id
+    def _build_field_values_index(self):
+        """Build field value index for configured fields."""
         configured_field_ids = set(self.field_info_map.keys())
-        if configured_field_ids:
-            for doc in self.docs:
-                if doc.get('props', {}).get('_docType') == 'tuple':
-                    children = doc.get('children', [])
-                    owner_id = doc.get('props', {}).get('_ownerId')
-                    if not owner_id or len(children) < 2:
-                        continue
+        if not configured_field_ids:
+            return
 
-                    # Check if any child is a configured field
-                    for field_id in configured_field_ids:
-                        if field_id in children:
-                            # Get value node IDs (everything except the field ID and system nodes)
-                            value_ids = [c for c in children if c != field_id and not c.startswith('SYS_')]
-                            if value_ids:
-                                if owner_id not in self.node_field_values:
-                                    self.node_field_values[owner_id] = {}
-                                if field_id not in self.node_field_values[owner_id]:
-                                    self.node_field_values[owner_id][field_id] = []
-                                self.node_field_values[owner_id][field_id].extend(value_ids)
+        for doc in self.docs:
+            if doc.get('props', {}).get('_docType') != 'tuple':
+                continue
+            children = doc.get('children', [])
+            owner_id = doc.get('props', {}).get('_ownerId')
+            if not owner_id or len(children) < 2:
+                continue
 
-            self.report_progress("Indexing", message=f"Indexed field values for {len(self.node_field_values)} nodes")
-            self.check_cancelled()
+            for field_id in configured_field_ids:
+                if field_id in children:
+                    value_ids = [c for c in children if c != field_id and not c.startswith('SYS_')]
+                    if value_ids:
+                        if owner_id not in self.node_field_values:
+                            self.node_field_values[owner_id] = {}
+                        if field_id not in self.node_field_values[owner_id]:
+                            self.node_field_values[owner_id][field_id] = []
+                        self.node_field_values[owner_id][field_id].extend(value_ids)
 
-        # Build image URL index - map node IDs to their Firebase URLs
+        self.report_progress("Indexing",
+                             message=f"Indexed field values for {len(self.node_field_values)} nodes")
+
+    def _build_image_url_index(self):
+        """Build image URL index - map node IDs to Firebase URLs."""
+        attachment_extensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf']
         for doc in self.docs:
             name = doc.get('props', {}).get('name', '')
             if 'firebasestorage.googleapis.com' in str(name):
-                # Check if it's an image URL
-                if any(ext in name.lower() for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf']):
+                if any(ext in name.lower() for ext in attachment_extensions):
                     self.image_urls[doc['id']] = html.unescape(name.replace('&amp;', '&'))
 
         self.report_progress("Indexing", message=f"Found {len(self.image_urls)} image URLs")
-        self.check_cancelled()
 
-        # Build attachment metadata -> URL mapping for nodes whose metanode
-        # tuples contain a Firebase attachment URL. This covers both images
-        # (which have _imageWidth) and other attachments like PDFs.
+    def _build_attachment_metadata_index(self):
+        """Build attachment metadata -> URL mapping for nodes via metanode tuples."""
         for doc in self.docs:
             props = doc.get('props', {})
             meta_id = props.get('_metaNodeId')
             if not meta_id or meta_id not in self.doc_map:
                 continue
+
             meta = self.doc_map[meta_id]
-            # Find tuple children that contain a Firebase URL
             for child_id in meta.get('children', []):
-                if child_id in self.doc_map:
-                    child = self.doc_map[child_id]
-                    if child.get('props', {}).get('_docType') == 'tuple':
-                        # Check tuple's children for Firebase URL
-                        for tc_id in child.get('children', []):
-                            if tc_id in self.image_urls:
-                                self.image_metadata_urls[doc['id']] = self.image_urls[tc_id]
-                                break
+                if child_id not in self.doc_map:
+                    continue
+                child = self.doc_map[child_id]
+                if child.get('props', {}).get('_docType') != 'tuple':
+                    continue
+                for tc_id in child.get('children', []):
+                    if tc_id in self.image_urls:
+                        self.image_metadata_urls[doc['id']] = self.image_urls[tc_id]
+                        break
                 if doc['id'] in self.image_metadata_urls:
                     break
 
-        self.report_progress("Indexing", message=f"Mapped {len(self.image_metadata_urls)} attachment metadata nodes")
-        self.check_cancelled()
+        self.report_progress("Indexing",
+                             message=f"Mapped {len(self.image_metadata_urls)} attachment metadata nodes")
 
-        # Build node names index for reference resolution
+    def _build_node_names_index(self):
+        """Build node names index for reference resolution."""
         for doc in self.docs:
             name = doc.get('props', {}).get('name', '')
             if name:
-                clean_name = self.clean_node_name(name)
-                self.node_names[doc['id']] = clean_name
+                self.node_names[doc['id']] = self.clean_node_name(name)
 
         self.report_progress("Indexing", message="Indexing complete")
+
+    def build_indices(self):
+        """Build lookup indices for supertags, metanodes, etc."""
+        self.report_progress("Indexing", message="Building indices...")
+
+        self._build_supertag_index()
+        self.check_cancelled()
+
+        self._build_metanode_tags_index()
+        self.check_cancelled()
+
+        self._build_field_values_index()
+        self.check_cancelled()
+
+        self._build_image_url_index()
+        self.check_cancelled()
+
+        self._build_attachment_metadata_index()
+        self.check_cancelled()
+
+        self._build_node_names_index()
 
     def extract_filename_from_url(self, url: str) -> str:
         """Extract a clean filename from an image URL."""
@@ -568,121 +625,109 @@ class TanaToObsidian:
             return False
         return tag_id in self.metanode_tags[meta_id]
 
+    def _replace_node_ref(self, match) -> str:
+        """Replace a Tana node reference with an Obsidian link."""
+        node_id = match.group(1)
+        alias_text = match.group(2).strip() if match.group(2) else ''
+
+        # Check if this node is an image URL node
+        if node_id in self.image_urls:
+            url = self.image_urls[node_id]
+            if self.settings.download_images:
+                filename = self.download_image(url)
+                if filename:
+                    return f'![[{filename}]]'
+            return f'![{alias_text or "image"}]({url})'
+
+        target_name = self._resolve_node_name(node_id)
+        if not target_name:
+            return alias_text if alias_text else ''
+
+        # Track this as a referenced node
+        if node_id in self.doc_map:
+            self.referenced_nodes.add(node_id)
+
+        # Use exported filename if available
+        if node_id in self.exported_files:
+            safe_name = self.exported_files[node_id]
+        else:
+            safe_name = self.sanitize_filename(target_name)
+
+        # Use Obsidian alias format if alias differs from name
+        if alias_text and alias_text != target_name:
+            return f'[[{safe_name}|{alias_text}]]'
+        return f'[[{safe_name}]]'
+
+    def _replace_date_ref(self, match) -> str:
+        """Replace a Tana date reference with an Obsidian link."""
+        try:
+            date_json = json.loads(match.group(1).replace('&quot;', '"'))
+            date_str = date_json.get('dateTimeString', '')
+            if date_str:
+                return f'[[{date_str}]]'
+        except (json.JSONDecodeError, KeyError):
+            pass
+        return ''
+
+    def _replace_embedded_image(self, match) -> str:
+        """Handle !<a href="URL"></a> pattern (Tana embedded images)."""
+        url = match.group(1)
+        if self.settings.download_images and self.is_attachment_url(url):
+            filename = self.download_image(url)
+            if filename:
+                return f'![[{filename}]]'
+        return f'![image]({url})'
+
+    def _replace_image_link(self, match) -> str:
+        """Handle <a href="URL">text</a> that points to an image."""
+        url = match.group(1)
+        link_text = match.group(2) if match.group(2) else ''
+
+        if self.is_attachment_url(url):
+            if self.settings.download_images:
+                filename = self.download_image(url)
+                if filename:
+                    return f'![[{filename}]]'
+            return f'![{link_text or "image"}]({url})'
+
+        return f'[{link_text}]({url})'
+
     def convert_references(self, text: str) -> str:
         """Convert Tana references to Obsidian [[links]] and image embeds."""
         if not text:
             return ''
 
-        # Decode HTML entities
         text = html.unescape(text)
-
-        download_images = self.settings.download_images
-
-        def replace_node_ref(match):
-            node_id = match.group(1)
-            alias_text = match.group(2).strip() if match.group(2) else ''
-
-            # Check if this node is an image URL node
-            if node_id in self.image_urls:
-                url = self.image_urls[node_id]
-                if download_images:
-                    filename = self.download_image(url)
-                    if filename:
-                        return f'![[{filename}]]'
-                # Fallback: return as link if download fails
-                return f'![{alias_text or "image"}]({url})'
-
-            # Get the target node name
-            target_name = self.node_names.get(node_id, '')
-            if not target_name and node_id in self.doc_map:
-                raw_name = self.doc_map[node_id].get('props', {}).get('name', '')
-                target_name = self.clean_node_name(raw_name)
-
-            if not target_name:
-                return alias_text if alias_text else ''
-
-            # Track this as a referenced node (for potential file creation)
-            if node_id in self.doc_map:
-                self.referenced_nodes.add(node_id)
-
-            # Check if this node was exported - use its actual filename
-            if node_id in self.exported_files:
-                safe_name = self.exported_files[node_id]
-            else:
-                safe_name = self.sanitize_filename(target_name)
-
-            # Use Obsidian alias format if alias differs from name
-            if alias_text and alias_text != target_name:
-                return f'[[{safe_name}|{alias_text}]]'
-            else:
-                return f'[[{safe_name}]]'
-
-        def replace_date_ref(match):
-            try:
-                date_json = json.loads(match.group(1).replace('&quot;', '"'))
-                date_str = date_json.get('dateTimeString', '')
-                if date_str:
-                    return f'[[{date_str}]]'
-            except:
-                pass
-            return ''
-
-        def replace_embedded_image(match):
-            """Handle !<a href="URL"></a> pattern (Tana embedded images)."""
-            url = match.group(1)
-            if download_images and self.is_attachment_url(url):
-                filename = self.download_image(url)
-                if filename:
-                    return f'![[{filename}]]'
-            # Fallback
-            return f'![image]({url})'
-
-        def replace_image_link(match):
-            """Handle <a href="URL">text</a> that points to an image."""
-            url = match.group(1)
-            link_text = match.group(2) if match.group(2) else ''
-
-            # Check if this is an image URL
-            if self.is_attachment_url(url):
-                if download_images:
-                    filename = self.download_image(url)
-                    if filename:
-                        return f'![[{filename}]]'
-                return f'![{link_text or "image"}]({url})'
-
-            # Not an image - keep as regular markdown link
-            return f'[{link_text}]({url})'
 
         # Replace node references
         text = re.sub(
             r'<span data-inlineref-node="([^"]*)"[^>]*>([^<]*)</span>',
-            replace_node_ref,
+            self._replace_node_ref,
             text
         )
 
         # Replace date references
         text = re.sub(
             r'<span data-inlineref-date="([^"]*)"[^>]*>[^<]*</span>',
-            replace_date_ref,
+            self._replace_date_ref,
             text
         )
 
-        # Handle Tana embedded images: !<a href="URL"></a>
+        # Handle Tana embedded images
         text = re.sub(
             r'!<a href="([^"]+)"[^>]*></a>',
-            replace_embedded_image,
+            self._replace_embedded_image,
             text
         )
 
         # Handle regular links (some might be images)
         text = re.sub(
             r'<a href="([^"]+)"[^>]*>([^<]*)</a>',
-            replace_image_link,
+            self._replace_image_link,
             text
         )
 
-        # Remove any remaining HTML tags (like <b>, etc.)
-        # But convert bold/italic first
+        # Convert bold/italic, then remove remaining HTML tags
         text = re.sub(r'<b>([^<]*)</b>', r'**\1**', text)
         text = re.sub(r'<i>([^<]*)</i>', r'*\1*', text)
         text = re.sub(r'<[^>]+>', '', text)
@@ -751,31 +796,25 @@ class TanaToObsidian:
             if self.should_skip_doc(child):
                 continue
 
-            child_name = child.get('props', {}).get('name', '')
+            child_props = child.get('props', {})
+            child_name = child_props.get('name', '')
             if not child_name:
                 continue
 
-            # Check if this child is an attachment node (Firebase URL, image dimensions, or metadata URL)
-            child_props = child.get('props', {})
-            is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_attachment_url(child_name)
-            has_attachment_metadata = child_props.get('_imageWidth') is not None or child_id in self.image_metadata_urls
+            # Check if this child is an attachment node
+            is_url_node, has_metadata = self._is_attachment_node(child_props, child_name, child_id)
+            indent = '  ' * depth
 
-            if is_image_url_node:
-                # This node's name is a Firebase URL - embed the attachment
+            if is_url_node:
                 url = html.unescape(child_name.replace('&amp;', '&'))
-                filename = self.download_image(url)
-                if filename:
-                    indent = '  ' * depth
-                    content_lines.append(f'{indent}![[{filename}]]')
+                embed = self._get_attachment_embed(url)
+                if embed:
+                    content_lines.append(f'{indent}{embed}')
                 continue
-            elif has_attachment_metadata:
-                # Attachment with metadata - try to find the URL through metanode mapping
-                if child_id in self.image_metadata_urls:
-                    url = self.image_metadata_urls[child_id]
-                    filename = self.download_image(url)
-                    if filename:
-                        indent = '  ' * depth
-                        content_lines.append(f'{indent}![[{filename}]]')
+            elif has_metadata and child_id in self.image_metadata_urls:
+                embed = self._get_attachment_embed(self.image_metadata_urls[child_id])
+                if embed:
+                    content_lines.append(f'{indent}{embed}')
                 continue
 
             # Convert the content
@@ -818,29 +857,24 @@ class TanaToObsidian:
             if self.should_skip_doc(child):
                 continue
 
-            child_name = child.get('props', {}).get('name', '')
+            child_props = child.get('props', {})
+            child_name = child_props.get('name', '')
             if not child_name:
                 continue
 
-            # Check if this child is an attachment node (Firebase URL, image dimensions, or metadata URL)
-            child_props = child.get('props', {})
-            is_image_url_node = 'firebasestorage.googleapis.com' in child_name and self.is_attachment_url(child_name)
-            has_attachment_metadata = child_props.get('_imageWidth') is not None or child_id in self.image_metadata_urls
+            # Check if this child is an attachment node
+            is_url_node, has_metadata = self._is_attachment_node(child_props, child_name, child_id)
 
-            if is_image_url_node:
-                # This node's name is a Firebase URL - embed the attachment
+            if is_url_node:
                 url = html.unescape(child_name.replace('&amp;', '&'))
-                filename = self.download_image(url)
-                if filename:
-                    content_lines.append(f'![[{filename}]]')
+                embed = self._get_attachment_embed(url)
+                if embed:
+                    content_lines.append(embed)
                 continue
-            elif has_attachment_metadata:
-                # Attachment with metadata - try to find the URL through metanode mapping
-                if child_id in self.image_metadata_urls:
-                    url = self.image_metadata_urls[child_id]
-                    filename = self.download_image(url)
-                    if filename:
-                        content_lines.append(f'![[{filename}]]')
+            elif has_metadata and child_id in self.image_metadata_urls:
+                embed = self._get_attachment_embed(self.image_metadata_urls[child_id])
+                if embed:
+                    content_lines.append(embed)
                 continue
 
             # Check if this child has a supertag
@@ -893,12 +927,7 @@ class TanaToObsidian:
             node_id = match.group(1)
             alias_text = match.group(2).strip() if match.group(2) else ''
 
-            # Get the target node name
-            target_name = self.node_names.get(node_id, '')
-            if not target_name and node_id in self.doc_map:
-                raw_name = self.doc_map[node_id].get('props', {}).get('name', '')
-                target_name = self.clean_node_name(raw_name)
-
+            target_name = self._resolve_node_name(node_id)
             display_name = alias_text if alias_text else target_name
             if display_name:
                 references.append((node_id, display_name))
@@ -1083,11 +1112,8 @@ class TanaToObsidian:
                 content_parts.append('\n\n'.join(sections))
 
             # Write file
-            folder.mkdir(parents=True, exist_ok=True)
             file_path = folder / f'{filename}.md'
-
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(content_parts))
+            self._write_markdown_file(file_path, content_parts)
 
         return single_count, merged_count
 
@@ -1240,11 +1266,8 @@ class TanaToObsidian:
             content_parts.append(children_content)
 
         # Write file
-        folder.mkdir(parents=True, exist_ok=True)
         file_path = folder / f'{filename}.md'
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(content_parts))
+        self._write_markdown_file(file_path, content_parts)
 
         return str(file_path)
 
@@ -1276,11 +1299,8 @@ class TanaToObsidian:
             content_parts.append(body_content)
 
         # Write file
-        folder.mkdir(parents=True, exist_ok=True)
         file_path = folder / filename
-
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(content_parts))
+        self._write_markdown_file(file_path, content_parts)
 
         return tagged_nodes
 
@@ -1343,6 +1363,195 @@ class TanaToObsidian:
 
         return None
 
+    def _get_daily_notes_dir(self) -> Path:
+        """Get the daily notes directory based on day tag configuration."""
+        if self.day_tag_id and self.day_tag_id in self.supertag_folders:
+            folder_name = self.supertag_folders[self.day_tag_id]
+            if folder_name:
+                return self.output_dir / folder_name
+        return self.output_dir
+
+    def _phase_export_daily_notes(self, daily_notes_dir: Path) -> tuple:
+        """Phase 1: Export daily notes and collect tagged nodes.
+
+        Returns:
+            tuple: (daily_count, blank_daily_count, all_tagged_nodes, skipped_count)
+        """
+        daily_count = 0
+        blank_daily_count = 0
+        skipped_count = 0
+        all_tagged_nodes = []
+
+        # Check if day tag is selected (or if no selection filter is active)
+        export_daily_notes = True
+        if self.selected_supertag_ids and self.day_tag_id:
+            export_daily_notes = self.day_tag_id in self.selected_supertag_ids
+
+        if not export_daily_notes:
+            self.report_progress("Daily Notes", 0, 0, "Skipped (day supertag not selected)")
+            return daily_count, blank_daily_count, all_tagged_nodes, skipped_count
+
+        self.report_progress("Daily Notes", 0, len(self.docs), "Exporting daily notes...")
+
+        for doc in self.docs:
+            self.check_cancelled()
+
+            if self.should_skip_doc(doc):
+                skipped_count += 1
+                continue
+
+            if self.is_daily_note(doc):
+                tagged_nodes = self.export_daily_note(doc, daily_notes_dir)
+                if tagged_nodes is None:
+                    blank_daily_count += 1
+                else:
+                    all_tagged_nodes.extend(tagged_nodes)
+                    daily_count += 1
+
+                if daily_count % 100 == 0:
+                    self.report_progress("Daily Notes", daily_count, 0,
+                                         f"Exported {daily_count} daily notes...")
+
+        self.report_progress("Daily Notes", daily_count, daily_count,
+                             f"Exported {daily_count} daily notes")
+        return daily_count, blank_daily_count, all_tagged_nodes, skipped_count
+
+    def _phase_collect_tagged_nodes(self, all_tagged_nodes: list) -> int:
+        """Phase 2: Collect tagged nodes for merging.
+
+        Returns:
+            int: Number of tagged nodes collected
+        """
+        self.report_progress("Tagged Nodes", 0, len(all_tagged_nodes),
+                             f"Collecting {len(all_tagged_nodes)} tagged nodes...")
+        self.check_cancelled()
+
+        tagged_count = 0
+        for node, filename, daily_date in all_tagged_nodes:
+            folder = self._get_node_output_folder(node)
+
+            if filename not in self.pending_merges:
+                self.pending_merges[filename] = []
+            self.pending_merges[filename].append((daily_date, node, folder))
+            tagged_count += 1
+
+            if tagged_count % 100 == 0:
+                self.report_progress("Tagged Nodes", tagged_count, len(all_tagged_nodes),
+                                     f"Collected {tagged_count} tagged nodes...")
+
+        return tagged_count
+
+    def _phase_find_orphan_nodes(self) -> int:
+        """Phase 3: Find orphan tagged nodes not under any daily note.
+
+        Returns:
+            int: Number of orphan nodes found
+        """
+        self.report_progress("Orphan Nodes", 0, len(self.docs), "Finding orphan tagged nodes...")
+        self.check_cancelled()
+        orphan_count = 0
+
+        for doc in self.docs:
+            self.check_cancelled()
+
+            if self.should_skip_doc(doc):
+                continue
+
+            doc_id = doc.get('id')
+
+            # Skip if already collected or is a daily note
+            if doc_id in self.exported_files or self.is_daily_note(doc):
+                continue
+
+            if not self.has_supertag(doc):
+                continue
+
+            name = doc.get('props', {}).get('name', '')
+            clean_name = self.clean_node_name(name)
+
+            daily_date = self.find_daily_note_ancestor(doc)
+            if not daily_date:
+                daily_date = self.get_node_created_date(doc)
+
+            base_filename = self.sanitize_filename(clean_name)
+            self.exported_files[doc_id] = base_filename
+
+            folder = self._get_node_output_folder(doc)
+
+            if base_filename not in self.pending_merges:
+                self.pending_merges[base_filename] = []
+            self.pending_merges[base_filename].append((daily_date, doc, folder))
+            orphan_count += 1
+
+        self.report_progress("Orphan Nodes", orphan_count, orphan_count,
+                             f"Found {orphan_count} orphan tagged nodes")
+        return orphan_count
+
+    def _phase_create_referenced_node_files(self) -> int:
+        """Phase 5: Create files for referenced nodes without supertags.
+
+        Returns:
+            int: Number of referenced node files created
+        """
+        if not self.settings.include_library_nodes:
+            return 0
+
+        referenced_nodes_snapshot = list(self.referenced_nodes)
+        self.report_progress("Referenced Nodes", 0, len(referenced_nodes_snapshot),
+                             "Creating files for referenced nodes...")
+        self.check_cancelled()
+
+        referenced_count = 0
+        for node_id in referenced_nodes_snapshot:
+            self.check_cancelled()
+
+            # Skip if already has a file or doesn't exist
+            if node_id in self.exported_files or node_id not in self.doc_map:
+                continue
+
+            doc = self.doc_map[node_id]
+
+            # Skip system nodes, trash, or nodes with supertags
+            if self.should_skip_referenced_node(doc) or self._doc_has_any_supertag(doc):
+                continue
+
+            name = doc.get('props', {}).get('name', '')
+            clean_name = self.clean_node_name(name)
+            if not clean_name:
+                continue
+
+            filename = self.sanitize_filename(clean_name)
+            self.exported_files[node_id] = filename
+
+            node_date = self.find_daily_note_ancestor(doc)
+            if not node_date:
+                node_date = self.get_node_created_date(doc)
+
+            content_parts = []
+            tags = self.get_node_tags(doc)
+            frontmatter = self.create_frontmatter(tags, doc, node_date)
+            if frontmatter:
+                content_parts.append(frontmatter)
+
+            children_content = self.get_inline_content(doc)
+            if children_content:
+                content_parts.append(children_content)
+
+            # Determine output folder
+            if self.settings.untagged_library_folder:
+                output_folder = self.output_dir / self.settings.untagged_library_folder
+            else:
+                output_folder = self.output_dir
+
+            file_path = output_folder / f'{filename}.md'
+            self._write_markdown_file(file_path, content_parts)
+
+            referenced_count += 1
+
+        self.report_progress("Referenced Nodes", referenced_count, referenced_count,
+                             f"Created {referenced_count} files for referenced nodes")
+        return referenced_count
+
     def run(self) -> ConversionResult:
         """Main export process with progress reporting."""
         try:
@@ -1354,208 +1563,32 @@ class TanaToObsidian:
 
             # Create output directories
             self.output_dir.mkdir(parents=True, exist_ok=True)
+            daily_notes_dir = self._get_daily_notes_dir()
 
-            # Get daily notes folder from day tag's configured folder (or default)
-            daily_notes_dir = self.output_dir
-            if self.day_tag_id and self.day_tag_id in self.supertag_folders:
-                folder_name = self.supertag_folders[self.day_tag_id]
-                if folder_name:
-                    daily_notes_dir = self.output_dir / folder_name
-
-            # Counters
-            daily_count = 0
-            blank_daily_count = 0
-            tagged_count = 0
-            skipped_count = 0
-
-            # Collect all tagged nodes to export (from daily notes)
-            all_tagged_nodes = []
-
-            # Phase 1: Export daily notes (only if #day supertag is selected)
-            # Check if day tag is selected (or if no selection filter is active)
-            export_daily_notes = True
-            if self.selected_supertag_ids and self.day_tag_id:
-                export_daily_notes = self.day_tag_id in self.selected_supertag_ids
-
-            if export_daily_notes:
-                self.report_progress("Daily Notes", 0, len(self.docs), "Exporting daily notes...")
-
-                for idx, doc in enumerate(self.docs):
-                    self.check_cancelled()
-
-                    if self.should_skip_doc(doc):
-                        skipped_count += 1
-                        continue
-
-                    if self.is_daily_note(doc):
-                        tagged_nodes = self.export_daily_note(doc, daily_notes_dir)
-                        if tagged_nodes is None:
-                            # Blank daily note - skipped
-                            blank_daily_count += 1
-                        else:
-                            all_tagged_nodes.extend(tagged_nodes)
-                            daily_count += 1
-
-                        if daily_count % 100 == 0:
-                            self.report_progress("Daily Notes", daily_count, 0, f"Exported {daily_count} daily notes...")
-
-                self.report_progress("Daily Notes", daily_count, daily_count, f"Exported {daily_count} daily notes")
-            else:
-                self.report_progress("Daily Notes", 0, 0, "Skipped (day supertag not selected)")
+            # Phase 1: Export daily notes
+            daily_count, blank_daily_count, all_tagged_nodes, _ = \
+                self._phase_export_daily_notes(daily_notes_dir)
 
             # Phase 2: Collect tagged nodes for merging
-            self.report_progress("Tagged Nodes", 0, len(all_tagged_nodes), f"Collecting {len(all_tagged_nodes)} tagged nodes...")
-            self.check_cancelled()
+            tagged_count = self._phase_collect_tagged_nodes(all_tagged_nodes)
 
-            for idx, (node, filename, daily_date) in enumerate(all_tagged_nodes):
-                # Determine folder based on node's supertag configuration
-                folder = self._get_node_output_folder(node)
-
-                # Add to pending merges
-                if filename not in self.pending_merges:
-                    self.pending_merges[filename] = []
-                self.pending_merges[filename].append((daily_date, node, folder))
-                tagged_count += 1
-
-                if tagged_count % 100 == 0:
-                    self.report_progress("Tagged Nodes", tagged_count, len(all_tagged_nodes), f"Collected {tagged_count} tagged nodes...")
-
-            # Phase 3: Find orphan tagged nodes (not under any daily note)
-            self.report_progress("Orphan Nodes", 0, len(self.docs), "Finding orphan tagged nodes...")
-            self.check_cancelled()
-            orphan_count = 0
-
-            for idx, doc in enumerate(self.docs):
-                self.check_cancelled()
-
-                if self.should_skip_doc(doc):
-                    continue
-
-                doc_id = doc.get('id')
-
-                # Skip if already collected
-                if doc_id in self.exported_files:
-                    continue
-
-                # Skip daily notes (already handled)
-                if self.is_daily_note(doc):
-                    continue
-
-                # Check if this node has a supertag
-                if self.has_supertag(doc):
-                    name = doc.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(name)
-
-                    # Find associated date if any
-                    daily_date = self.find_daily_note_ancestor(doc)
-                    if not daily_date:
-                        daily_date = self.get_node_created_date(doc)
-
-                    # Always use base filename (duplicates will be merged)
-                    base_filename = self.sanitize_filename(clean_name)
-
-                    # Track this node -> filename mapping
-                    self.exported_files[doc_id] = base_filename
-
-                    # Determine folder based on node's supertag configuration
-                    folder = self._get_node_output_folder(doc)
-
-                    # Add to pending merges
-                    if base_filename not in self.pending_merges:
-                        self.pending_merges[base_filename] = []
-                    self.pending_merges[base_filename].append((daily_date, doc, folder))
-                    orphan_count += 1
-
-            self.report_progress("Orphan Nodes", orphan_count, orphan_count, f"Found {orphan_count} orphan tagged nodes")
+            # Phase 3: Find orphan tagged nodes
+            orphan_count = self._phase_find_orphan_nodes()
 
             # Phase 4: Write all merged files
-            self.report_progress("Writing", 0, len(self.pending_merges), f"Writing {len(self.pending_merges)} merged files...")
+            self.report_progress("Writing", 0, len(self.pending_merges),
+                                 f"Writing {len(self.pending_merges)} merged files...")
             self.check_cancelled()
             single_count, merged_count = self.write_merged_files()
 
-            # Phase 5: Create files for referenced nodes that don't have files yet
-            # (only if include_library_nodes is enabled)
-            referenced_count = 0
-
-            if self.settings.include_library_nodes:
-                # Copy the set to avoid "Set changed size during iteration" error
-                # (convert_references adds to referenced_nodes when processing content)
-                referenced_nodes_snapshot = list(self.referenced_nodes)
-                self.report_progress("Referenced Nodes", 0, len(referenced_nodes_snapshot), "Creating files for referenced nodes...")
-                self.check_cancelled()
-
-                for node_id in referenced_nodes_snapshot:
-                    self.check_cancelled()
-
-                    # Skip if already has a file
-                    if node_id in self.exported_files:
-                        continue
-
-                    # Skip if node doesn't exist
-                    if node_id not in self.doc_map:
-                        continue
-
-                    doc = self.doc_map[node_id]
-
-                    # Skip if should be skipped (trash, system nodes, etc.)
-                    if self.should_skip_referenced_node(doc):
-                        continue
-
-                    # Skip if node has any supertag (this option is for nodes WITHOUT supertags)
-                    # Nodes with supertags should be exported via supertag selection, not here
-                    if self._doc_has_any_supertag(doc):
-                        continue
-
-                    name = doc.get('props', {}).get('name', '')
-                    clean_name = self.clean_node_name(name)
-                    if not clean_name:
-                        continue
-
-                    # Create filename
-                    filename = self.sanitize_filename(clean_name)
-
-                    # Track this node -> filename mapping
-                    self.exported_files[node_id] = filename
-
-                    # Get any date context
-                    node_date = self.find_daily_note_ancestor(doc)
-                    if not node_date:
-                        node_date = self.get_node_created_date(doc)
-
-                    # Build content
-                    content_parts = []
-
-                    # Add frontmatter with tags if any
-                    tags = self.get_node_tags(doc)
-                    frontmatter = self.create_frontmatter(tags, doc, node_date)
-                    if frontmatter:
-                        content_parts.append(frontmatter)
-
-                    # Add children content
-                    children_content = self.get_inline_content(doc)
-                    if children_content:
-                        content_parts.append(children_content)
-
-                    # Determine output folder for untagged library nodes
-                    if self.settings.untagged_library_folder:
-                        output_folder = self.output_dir / self.settings.untagged_library_folder
-                        output_folder.mkdir(parents=True, exist_ok=True)
-                    else:
-                        output_folder = self.output_dir
-
-                    # Write file
-                    file_path = output_folder / f'{filename}.md'
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write('\n'.join(content_parts))
-
-                    referenced_count += 1
-
-                self.report_progress("Referenced Nodes", referenced_count, referenced_count, f"Created {referenced_count} files for referenced nodes")
+            # Phase 5: Create files for referenced nodes
+            referenced_count = self._phase_create_referenced_node_files()
 
             # Calculate totals
             total_files_written = len(self.pending_merges) + referenced_count
 
-            self.report_progress("Complete", total_files_written, total_files_written, "Conversion complete!")
+            self.report_progress("Complete", total_files_written, total_files_written,
+                                 "Conversion complete!")
 
             return ConversionResult(
                 success=True,

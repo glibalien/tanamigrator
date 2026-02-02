@@ -3,7 +3,6 @@ from .components import (
     FilePickerFrame,
     ProgressFrame,
     LogFrame,
-    ActionButtonsFrame,
 )
 from .styles import (
     WINDOW_TITLE,
@@ -16,7 +15,6 @@ __all__ = [
     'FilePickerFrame',
     'ProgressFrame',
     'LogFrame',
-    'ActionButtonsFrame',
     'WINDOW_TITLE',
     'WINDOW_GEOMETRY',
     'WINDOW_MIN_SIZE',

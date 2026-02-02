@@ -4,7 +4,119 @@
       "id": "tag_task",
       "props": {
         "_docType": "tagDef",
-        "name": "task"
+        "name": "task",
+        "_metaNodeId": "metanode_tag_task"
+      },
+      "children": ["tuple_task_priority_field", "tuple_task_due_field", "tuple_task_done_field"]
+    },
+    {
+      "id": "metanode_tag_task",
+      "props": {
+        "_docType": "metanode"
+      },
+      "children": ["tuple_task_done_checkbox"]
+    },
+    {
+      "id": "tuple_task_done_checkbox",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "metanode_tag_task"
+      },
+      "children": ["SYS_A55", "SYS_V03"]
+    },
+    {
+      "id": "tuple_task_priority_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_task"
+      },
+      "children": ["field_priority"]
+    },
+    {
+      "id": "field_priority",
+      "props": {
+        "name": "Priority",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_priority_typechoice", "tuple_priority_options"]
+    },
+    {
+      "id": "tuple_priority_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_priority"
+      },
+      "children": ["SYS_D12"]
+    },
+    {
+      "id": "tuple_priority_options",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A03",
+        "_ownerId": "field_priority"
+      },
+      "children": ["option_high", "option_medium", "option_low"]
+    },
+    {
+      "id": "option_high",
+      "props": {
+        "name": "High",
+        "_ownerId": "field_priority"
+      }
+    },
+    {
+      "id": "option_medium",
+      "props": {
+        "name": "Medium",
+        "_ownerId": "field_priority"
+      }
+    },
+    {
+      "id": "option_low",
+      "props": {
+        "name": "Low",
+        "_ownerId": "field_priority"
+      }
+    },
+    {
+      "id": "tuple_task_due_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_task"
+      },
+      "children": ["field_due_date"]
+    },
+    {
+      "id": "field_due_date",
+      "props": {
+        "name": "Due Date",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_due_typechoice"]
+    },
+    {
+      "id": "tuple_due_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_due_date"
+      },
+      "children": ["SYS_D03"]
+    },
+    {
+      "id": "tuple_task_done_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_task"
+      },
+      "children": ["SYS_A77"]
+    },
+    {
+      "id": "SYS_A77",
+      "props": {
+        "name": "Done",
+        "_ownerId": "FjHKomuskX_SCHEMA"
       }
     },
     {
@@ -19,14 +131,174 @@
       "props": {
         "_docType": "tagDef",
         "name": "meeting"
-      }
+      },
+      "children": ["tuple_meeting_attendees_field", "tuple_meeting_url_field", "tuple_meeting_notes_field"]
+    },
+    {
+      "id": "tuple_meeting_attendees_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_meeting"
+      },
+      "children": ["field_attendees"]
+    },
+    {
+      "id": "field_attendees",
+      "props": {
+        "name": "Attendees",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_attendees_typechoice", "tuple_attendees_source"]
+    },
+    {
+      "id": "tuple_attendees_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_attendees"
+      },
+      "children": ["SYS_D05"]
+    },
+    {
+      "id": "tuple_attendees_source",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "field_attendees"
+      },
+      "children": ["SYS_A05", "tag_person"]
+    },
+    {
+      "id": "tuple_meeting_url_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_meeting"
+      },
+      "children": ["field_meeting_url"]
+    },
+    {
+      "id": "field_meeting_url",
+      "props": {
+        "name": "Meeting Link",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_url_typechoice"]
+    },
+    {
+      "id": "tuple_url_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_meeting_url"
+      },
+      "children": ["SYS_D10"]
+    },
+    {
+      "id": "tuple_meeting_notes_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_meeting"
+      },
+      "children": ["field_meeting_notes"]
+    },
+    {
+      "id": "field_meeting_notes",
+      "props": {
+        "name": "Notes",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_notes_typechoice"]
+    },
+    {
+      "id": "tuple_notes_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_meeting_notes"
+      },
+      "children": ["SYS_D06"]
     },
     {
       "id": "tag_project",
       "props": {
         "_docType": "tagDef",
         "name": "project"
-      }
+      },
+      "children": ["tuple_project_budget_field", "tuple_project_email_field", "tuple_project_active_field"]
+    },
+    {
+      "id": "tuple_project_budget_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_project"
+      },
+      "children": ["field_budget"]
+    },
+    {
+      "id": "field_budget",
+      "props": {
+        "name": "Budget",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_budget_typechoice"]
+    },
+    {
+      "id": "tuple_budget_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_budget"
+      },
+      "children": ["SYS_D08"]
+    },
+    {
+      "id": "tuple_project_email_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_project"
+      },
+      "children": ["field_contact_email"]
+    },
+    {
+      "id": "field_contact_email",
+      "props": {
+        "name": "Contact Email",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_email_typechoice"]
+    },
+    {
+      "id": "tuple_email_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_contact_email"
+      },
+      "children": ["SYS_D11"]
+    },
+    {
+      "id": "tuple_project_active_field",
+      "props": {
+        "_docType": "tuple",
+        "_ownerId": "tag_project"
+      },
+      "children": ["field_is_active"]
+    },
+    {
+      "id": "field_is_active",
+      "props": {
+        "name": "Is Active",
+        "_ownerId": "FjHKomuskX_SCHEMA"
+      },
+      "children": ["tuple_active_typechoice"]
+    },
+    {
+      "id": "tuple_active_typechoice",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "SYS_A02",
+        "_ownerId": "field_is_active"
+      },
+      "children": ["SYS_D01"]
     },
     {
       "id": "tag_person",
@@ -61,6 +333,28 @@
       "props": {
         "_docType": "tagDef",
         "name": "highlight"
+      }
+    },
+    {
+      "id": "tag_trashed",
+      "props": {
+        "_docType": "tagDef",
+        "name": "trashed-tag",
+        "_ownerId": "USER_TRASH"
+      }
+    },
+    {
+      "id": "tag_excluded_base",
+      "props": {
+        "_docType": "tagDef",
+        "name": "something (base type)"
+      }
+    },
+    {
+      "id": "SYS_tag_system",
+      "props": {
+        "_docType": "tagDef",
+        "name": "system-internal"
       }
     },
     {
@@ -201,7 +495,32 @@
         "created": 1705300000000,
         "_done": 1705400000000
       },
-      "children": ["task1_child1"]
+      "children": ["task1_child1", "tuple_task1_priority", "tuple_task1_due"]
+    },
+    {
+      "id": "tuple_task1_priority",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "field_priority",
+        "_ownerId": "task1"
+      },
+      "children": ["option_high"]
+    },
+    {
+      "id": "tuple_task1_due",
+      "props": {
+        "_docType": "tuple",
+        "_sourceId": "field_due_date",
+        "_ownerId": "task1"
+      },
+      "children": ["task1_due_value"]
+    },
+    {
+      "id": "task1_due_value",
+      "props": {
+        "name": "2024-01-20",
+        "_ownerId": "tuple_task1_due"
+      }
     },
     {
       "id": "task1_child1",

@@ -369,14 +369,16 @@ class TanaToObsidianApp(ctk.CTk):
             self.step1_status.configure(text=f"Scanning: {progress.message}")
         self.after(0, update)
 
+    def _cleanup_scan_progress(self):
+        """Stop and hide the scan progress bar."""
+        self.scan_progress.stop()
+        self.scan_progress.pack_forget()
+
     def _on_scan_complete(self, supertag_infos):
         """Handle scan completion (called on main thread)."""
         self.is_scanning = False
         self.supertag_infos = supertag_infos
-
-        # Stop and hide progress bar
-        self.scan_progress.stop()
-        self.scan_progress.pack_forget()
+        self._cleanup_scan_progress()
 
         # Populate the supertag selection list
         self.supertag_selection.set_supertags(self.supertag_infos)
@@ -393,10 +395,7 @@ class TanaToObsidianApp(ctk.CTk):
     def _on_scan_error(self, error_message):
         """Handle scan error (called on main thread)."""
         self.is_scanning = False
-
-        # Stop and hide progress bar
-        self.scan_progress.stop()
-        self.scan_progress.pack_forget()
+        self._cleanup_scan_progress()
 
         # Update status and re-enable navigation
         self.step1_status.configure(text=f"Scan failed: {error_message}")
@@ -498,55 +497,63 @@ class TanaToObsidianApp(ctk.CTk):
         # Schedule UI update on main thread
         self.after(0, update)
 
+    def _handle_conversion_success(self, result: ConversionResult):
+        """Handle successful conversion - log results and show message."""
+        self.progress_frame.set_progress(1.0)
+        self.progress_frame.set_status("Conversion complete!")
+
+        self._log("")
+        self._log("=" * 40)
+        self._log("CONVERSION COMPLETE")
+        self._log("=" * 40)
+        self._log(f"Daily notes exported: {result.daily_notes_count}")
+        self._log(f"Blank daily notes skipped: {result.blank_daily_notes_skipped}")
+        self._log(f"Tagged nodes: {result.tagged_nodes_count}")
+        self._log(f"Orphan nodes: {result.orphan_nodes_count}")
+        self._log(f"Referenced nodes: {result.referenced_nodes_count}")
+        self._log(f"Images downloaded: {result.images_downloaded}")
+        if result.image_errors:
+            self._log(f"Image download errors: {len(result.image_errors)}")
+        self._log(f"Files written: {result.files_written}")
+        self._log(f"  - Single files: {result.single_files}")
+        self._log(f"  - Merged files: {result.merged_files}")
+        self._log("")
+        self._log(f"Output directory: {self.output_dir}")
+
+        messagebox.showinfo(
+            "Success",
+            f"Conversion complete!\n\n"
+            f"Files written: {result.files_written}\n"
+            f"Daily notes: {result.daily_notes_count}\n"
+            f"Images downloaded: {result.images_downloaded}\n\n"
+            f"Output: {self.output_dir}"
+        )
+
+    def _handle_conversion_failure(self, result: ConversionResult):
+        """Handle failed conversion - log error and show message."""
+        self.progress_frame.set_progress(0)
+        self.progress_frame.set_status("Conversion failed")
+
+        self._log("")
+        self._log("=" * 40)
+        self._log("CONVERSION FAILED")
+        self._log("=" * 40)
+        self._log(f"Error: {result.error_message}")
+
+        messagebox.showerror(
+            "Error",
+            f"Conversion failed:\n\n{result.error_message}"
+        )
+
     def _on_complete(self, result: ConversionResult):
         """Handle conversion complete."""
         self.is_converting = False
         self.nav_frame.set_step(self.current_step, len(self.STEPS), False)
 
         if result.success:
-            self.progress_frame.set_progress(1.0)
-            self.progress_frame.set_status("Conversion complete!")
-
-            self._log("")
-            self._log("=" * 40)
-            self._log("CONVERSION COMPLETE")
-            self._log("=" * 40)
-            self._log(f"Daily notes exported: {result.daily_notes_count}")
-            self._log(f"Blank daily notes skipped: {result.blank_daily_notes_skipped}")
-            self._log(f"Tagged nodes: {result.tagged_nodes_count}")
-            self._log(f"Orphan nodes: {result.orphan_nodes_count}")
-            self._log(f"Referenced nodes: {result.referenced_nodes_count}")
-            self._log(f"Images downloaded: {result.images_downloaded}")
-            if result.image_errors:
-                self._log(f"Image download errors: {len(result.image_errors)}")
-            self._log(f"Files written: {result.files_written}")
-            self._log(f"  - Single files: {result.single_files}")
-            self._log(f"  - Merged files: {result.merged_files}")
-            self._log("")
-            self._log(f"Output directory: {self.output_dir}")
-
-            messagebox.showinfo(
-                "Success",
-                f"Conversion complete!\n\n"
-                f"Files written: {result.files_written}\n"
-                f"Daily notes: {result.daily_notes_count}\n"
-                f"Images downloaded: {result.images_downloaded}\n\n"
-                f"Output: {self.output_dir}"
-            )
+            self._handle_conversion_success(result)
         else:
-            self.progress_frame.set_progress(0)
-            self.progress_frame.set_status("Conversion failed")
-
-            self._log("")
-            self._log("=" * 40)
-            self._log("CONVERSION FAILED")
-            self._log("=" * 40)
-            self._log(f"Error: {result.error_message}")
-
-            messagebox.showerror(
-                "Error",
-                f"Conversion failed:\n\n{result.error_message}"
-            )
+            self._handle_conversion_failure(result)
 
     def _cancel_conversion(self):
         """Cancel the running conversion."""

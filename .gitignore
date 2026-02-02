@@ -56,3 +56,4 @@ htmlcov/
 
 # Local planning docs
 ADDITIONAL_FRONTMATTER_FIELDS.md
+tanaexport.json

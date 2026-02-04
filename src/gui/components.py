@@ -575,6 +575,17 @@ class FolderConfigFrame(ctk.CTkFrame):
 
         self.untagged_library_entry = ctk.CTkEntry(self.bottom_frame, width=200)
 
+        # Library folder (for Export Everything mode, initially hidden)
+        self.library_label = ctk.CTkLabel(
+            self.bottom_frame,
+            text="Library folder:",
+            width=160,
+            anchor="w"
+        )
+
+        self.library_entry = ctk.CTkEntry(self.bottom_frame, width=200)
+        self.library_entry.insert(0, "Library")
+
     def set_supertags(self, supertag_configs: List['SupertagConfig']):
         """Populate the folder configuration with selected supertags."""
         # Clear existing
@@ -627,6 +638,10 @@ class FolderConfigFrame(ctk.CTkFrame):
         """Return the untagged library nodes folder name."""
         return self.untagged_library_entry.get().strip()
 
+    def get_library_folder(self) -> str:
+        """Return the Library folder name (for Export Everything mode)."""
+        return self.library_entry.get().strip()
+
     def set_include_library_nodes(self, include: bool):
         """Show or hide the untagged library folder field based on setting."""
         if include:
@@ -635,3 +650,12 @@ class FolderConfigFrame(ctk.CTkFrame):
         else:
             self.untagged_library_label.grid_forget()
             self.untagged_library_entry.grid_forget()
+
+    def set_export_everything_mode(self, enabled: bool):
+        """Show or hide the Library folder field for Export Everything mode."""
+        if enabled:
+            self.library_label.grid(row=2, column=0, padx=(5, 10), pady=3, sticky="w")
+            self.library_entry.grid(row=2, column=1, pady=3, sticky="ew", padx=(0, 5))
+        else:
+            self.library_label.grid_forget()
+            self.library_entry.grid_forget()

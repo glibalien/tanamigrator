@@ -51,8 +51,10 @@ htmlcov/
 .tox/
 .nox/
 
-# Local settings
-.claude/
+# Local settings (track commands, ignore local settings)
+.claude/*
+!.claude/commands/
+.claude/settings.local.json
 
 # Environment and secrets
 .env

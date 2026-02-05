@@ -54,5 +54,10 @@ htmlcov/
 # Local settings
 .claude/
 
+# Environment and secrets
+.env
+.env.local
+*.env
+
 # Local planning docs
 ADDITIONAL_FRONTMATTER_FIELDS.md

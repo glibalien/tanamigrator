@@ -1,0 +1,7 @@
+{
+  "name": "Tana Clipper (Minimal)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "remoteUser": "node",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "postCreateCommand": "echo 'Container ready!'"
+}

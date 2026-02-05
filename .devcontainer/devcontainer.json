@@ -1,0 +1,71 @@
+{
+  "name": "Dev Template",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "TZ": "${localEnv:TZ:America/Denver}",
+      "CLAUDE_CODE_VERSION": "latest",
+      "GIT_DELTA_VERSION": "0.18.2",
+      "ZSH_IN_DOCKER_VERSION": "1.2.0"
+    }
+  },
+  "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "johnpapa.vscode-peacock"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "bash",
+            "icon": "terminal-bash"
+          },
+          "zsh": {
+            "path": "zsh"
+          }
+        },
+        "window.title": "${rootName}${separator}${activeEditorShort}"
+      }
+    }
+  },
+  "remoteUser": "node",
+  // For additional customizations (colored title bars, etc.), open the .code-workspace file instead of the folder
+  // Persist CLI tool authorizations and configs across container rebuilds
+  "mounts": [
+    "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+    "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    "source=codex-config-${devcontainerId},target=/home/node/.codex,type=volume",
+    "source=gemini-config-${devcontainerId},target=/home/node/.gemini,type=volume",
+    "source=glm-config-${devcontainerId},target=/home/node/.glm,type=volume",
+    "source=claude-code-gh-${devcontainerId},target=/home/node/.config/gh,type=volume",
+    "source=claude-code-aws-${devcontainerId},target=/home/node/.aws,type=volume",
+    "source=claude-code-gcloud-${devcontainerId},target=/home/node/.config/gcloud,type=volume",
+    "source=claude-code-docker-${devcontainerId},target=/home/node/.docker,type=volume",
+    "source=claude-code-npm-${devcontainerId},target=/home/node/.npmrc,type=volume",
+    "source=claude-code-ssh-${devcontainerId},target=/home/node/.ssh,type=volume",
+    // Docker-outside-of-Docker: Access host Docker daemon from container
+    // Security note: This gives the container access to your host's Docker daemon.
+    // Only use in trusted development environments. The container can build images,
+    // run containers, and access Docker on your host machine.
+    // Comment out this line if you don't need Docker access from the container.
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ],
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "postCreateCommand": "REPO_NAME=$(basename $(git remote get-url origin 2>/dev/null || pwd) .git); [ -f project.code-workspace ] && mv project.code-workspace ${REPO_NAME}.code-workspace || true; bash ./.devcontainer/scripts/setup/features/claude-code.sh"
+}

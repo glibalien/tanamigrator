@@ -25,7 +25,7 @@ Requires Python 3.11+
 
 ```bash
 # Clone the repository
-git clone https://github.com/iamactionbarry/tanamigrator.git
+git clone https://github.com/glibalien/tanamigrator.git
 cd tanamigrator
 
 # Create virtual environment

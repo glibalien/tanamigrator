@@ -845,6 +845,69 @@ class TanaToObsidian:
 
         return name if name else 'Untitled'
 
+    def _get_value_name_and_doc(self, vid: str) -> tuple:
+        """Helper to get value name and doc, handling system boolean values."""
+        if vid == 'SYS_V03': return 'Yes', None
+        if vid == 'SYS_V04': return 'No', None
+        doc = self.doc_map.get(vid)
+        if doc:
+            return doc.get('props', {}).get('name', ''), doc
+        return '', None
+
+    def _get_field_def_from_tuple(self, tuple_doc: dict) -> tuple:
+        """Return (field_name, field_id, value_ids) for a tuple."""
+        children = tuple_doc.get('children', [])
+        field_doc = None
+        field_id = None
+        
+        for cid in children:
+            child = self.doc_map.get(cid)
+            if not child:
+                continue
+                
+            props = child.get('props', {})
+            owner = props.get('_ownerId', '')
+            doc_type = props.get('_docType', '')
+            
+            if cid.startswith('SYS_A'):
+                field_doc = child
+                field_id = cid
+                break
+                
+            if doc_type == 'attrDef':
+                field_doc = child
+                field_id = cid
+                break
+                
+            if owner == 'FjHKomuskX_SCHEMA':
+                field_doc = child
+                field_id = cid
+                break
+                
+            if owner == tuple_doc.get('id'):
+                field_doc = child
+                field_id = cid
+                break
+
+        if not field_doc and children:
+            first_child = self.doc_map.get(children[0])
+            if first_child:
+                fc_props = first_child.get('props', {})
+                if first_child.get('children') and fc_props.get('name') and not fc_props.get('_docType'):
+                    field_doc = first_child
+                    field_id = children[0]
+
+        if field_doc:
+            name = field_doc.get('props', {}).get('name', '')
+            if not name:
+                if field_id == 'SYS_A13': name = 'Tags'
+                elif field_id == 'SYS_A77': name = 'Done'
+                elif field_id == 'SYS_A05': name = 'Source'
+            value_ids = [c for c in children if c != field_id and not c.startswith('SYS_T')]
+            return name, field_id, value_ids
+            
+        return "", None, []
+
     def get_inline_content(self, doc: dict, depth: int = 0, visited: set = None, max_depth: int = 20) -> str:
         """Recursively build inline bullet content from children (for nodes without supertags)."""
         if visited is None:
@@ -854,7 +917,7 @@ class TanaToObsidian:
         if depth > max_depth:
             return ''
 
-        doc_id = doc.get('id')
+        doc_id = doc.get('id', '')
         if doc_id in visited:
             return ''
         visited.add(doc_id)
@@ -875,6 +938,56 @@ class TanaToObsidian:
                 continue
 
             child_props = child.get('props', {})
+            doc_type = child_props.get('_docType')
+            
+            if doc_type == 'tuple':
+                field_name, field_id, value_ids = self._get_field_def_from_tuple(child)
+                if field_name and value_ids:
+                    # Skip if this is a root field and it's already in frontmatter
+                    if depth == 0 and field_id in self.field_info_map:
+                        continue
+                        
+                    indent = '  ' * depth
+                    field_display_name = self.convert_references(field_name) or field_name
+                    
+                    if len(value_ids) == 1:
+                        val_name, val_doc = self._get_value_name_and_doc(value_ids[0])
+                        if val_name or val_doc:
+                            val_clean = self.convert_references(val_name)
+                            if val_clean:
+                                content_lines.append(f'{indent}- **{field_display_name}**: {val_clean}')
+                            else:
+                                content_lines.append(f'{indent}- **{field_display_name}**:')
+                                
+                            if val_doc:
+                                val_children_content = self.get_inline_content(val_doc, depth + 1, visited.copy(), max_depth)
+                                if val_children_content:
+                                    content_lines.append(val_children_content)
+                    else:
+                        content_lines.append(f'{indent}- **{field_display_name}**:')
+                        for vid in value_ids:
+                            val_name, val_doc = self._get_value_name_and_doc(vid)
+                            if val_name or val_doc:
+                                val_clean = self.convert_references(val_name)
+                                if val_clean:
+                                    content_lines.append(f'{indent}  - {val_clean}')
+                                    if val_doc:
+                                        val_children_content = self.get_inline_content(val_doc, depth + 2, visited.copy(), max_depth)
+                                        if val_children_content:
+                                            content_lines.append(val_children_content)
+                                else:
+                                    if val_doc:
+                                        val_children_content = self.get_inline_content(val_doc, depth + 2, visited.copy(), max_depth)
+                                        if val_children_content:
+                                            content_lines.append(f'{indent}  -')
+                                            content_lines.append(val_children_content)
+                else:
+                    # Unrecognized tuple, just recurse into its children at same depth
+                    tuple_content = self.get_inline_content(child, depth, visited.copy(), max_depth)
+                    if tuple_content:
+                        content_lines.append(tuple_content)
+                continue
+
             child_name = child_props.get('name', '')
             if not child_name:
                 continue
@@ -899,10 +1012,9 @@ class TanaToObsidian:
             converted = self.convert_references(child_name)
             if converted:
                 # Add as bullet point with appropriate indentation
-                indent = '  ' * depth
                 content_lines.append(f'{indent}- {converted}')
 
-                # Recursively add children (all inline since parent had no supertag)
+                # Recursively add children
                 child_content = self.get_inline_content(child, depth + 1, visited.copy(), max_depth)
                 if child_content:
                     content_lines.append(child_content)
@@ -920,7 +1032,7 @@ class TanaToObsidian:
         content_lines = []
         tagged_nodes_to_export = []
         visited = set()
-        visited.add(doc.get('id'))
+        visited.add(doc.get('id', ''))
 
         children_ids = doc.get('children', [])
         for child_id in children_ids:
@@ -936,6 +1048,54 @@ class TanaToObsidian:
                 continue
 
             child_props = child.get('props', {})
+            doc_type = child_props.get('_docType')
+            
+            if doc_type == 'tuple':
+                field_name, field_id, value_ids = self._get_field_def_from_tuple(child)
+                if field_name and value_ids:
+                    # Skip if this field is mapped to frontmatter
+                    if field_id in self.field_info_map:
+                        continue
+                        
+                    field_display_name = self.convert_references(field_name) or field_name
+                    
+                    if len(value_ids) == 1:
+                        val_name, val_doc = self._get_value_name_and_doc(value_ids[0])
+                        if val_name or val_doc:
+                            val_clean = self.convert_references(val_name)
+                            if val_clean:
+                                content_lines.append(f'- **{field_display_name}**: {val_clean}')
+                            else:
+                                content_lines.append(f'- **{field_display_name}**:')
+                                
+                            if val_doc:
+                                val_children_content = self.get_inline_content(val_doc, depth=1, visited={doc.get('id', '')})
+                                if val_children_content:
+                                    content_lines.append(val_children_content)
+                    else:
+                        content_lines.append(f'- **{field_display_name}**:')
+                        for vid in value_ids:
+                            val_name, val_doc = self._get_value_name_and_doc(vid)
+                            if val_name or val_doc:
+                                val_clean = self.convert_references(val_name)
+                                if val_clean:
+                                    content_lines.append(f'  - {val_clean}')
+                                    if val_doc:
+                                        val_children_content = self.get_inline_content(val_doc, depth=2, visited={doc.get('id', '')})
+                                        if val_children_content:
+                                            content_lines.append(val_children_content)
+                                else:
+                                    if val_doc:
+                                        val_children_content = self.get_inline_content(val_doc, depth=2, visited={doc.get('id', '')})
+                                        if val_children_content:
+                                            content_lines.append('  -')
+                                            content_lines.append(val_children_content)
+                else:
+                    tuple_content = self.get_inline_content(child, depth=0, visited={doc.get('id', '')})
+                    if tuple_content:
+                        content_lines.append(tuple_content)
+                continue
+
             child_name = child_props.get('name', '')
             if not child_name:
                 continue
@@ -963,7 +1123,7 @@ class TanaToObsidian:
                     converted = self.convert_references(child_name)
                     if converted:
                         content_lines.append(f'- {converted}')
-                        inline_visited = {doc.get('id')}
+                        inline_visited = {doc.get('id', '')}
                         child_content = self.get_inline_content(child, depth=1, visited=inline_visited)
                         if child_content:
                             content_lines.append(child_content)
@@ -997,7 +1157,7 @@ class TanaToObsidian:
 
                     # Recursively add all children as inline content
                     # Pass a fresh visited set starting with just the daily note
-                    inline_visited = {doc.get('id')}
+                    inline_visited = {doc.get('id', '')}
                     child_content = self.get_inline_content(child, depth=1, visited=inline_visited)
                     if child_content:
                         content_lines.append(child_content)
@@ -1236,7 +1396,7 @@ class TanaToObsidian:
         # Skip certain doc types
         doc_type = doc.get('props', {}).get('_docType')
         skip_types = [
-            'metanode', 'tuple', 'workspace', 'search', 'viewDef',
+            'metanode', 'workspace', 'search', 'viewDef',
             'transcriptLine', 'transcript', 'associatedData', 'visual',
             'chat', 'chatbot', 'settings', 'settingsSection', 'syntax',
             'command', 'systemTool', 'placeholder', 'home', 'attrDef',
@@ -1262,19 +1422,20 @@ class TanaToObsidian:
                                '_CAPTURE_INBOX', '_PINS', '_TRAILING_SIDEBAR')):
             return True
 
-        # Must have a name
+        # Must have a name OR be a tuple
         name = doc.get('props', {}).get('name', '')
-        if not name:
+        if not name and doc_type != 'tuple':
             return True
 
         # Skip if name is just a reference with no content
-        clean_name = self.clean_node_name(name)
-        if not clean_name:
-            return True
+        if name:
+            clean_name = self.clean_node_name(name)
+            if not clean_name:
+                return True
 
-        # Skip files that would be named like "! 2.md", "!11.md", etc.
-        if re.match(r'^!+\s*\d*$', clean_name.strip()):
-            return True
+            # Skip files that would be named like "! 2.md", "!11.md", etc.
+            if re.match(r'^!+\s*\d*$', clean_name.strip()):
+                return True
 
         return False
 
